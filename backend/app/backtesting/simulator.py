@@ -37,12 +37,15 @@ def simulate_strategy_on_ohlcv(
 ) -> dict[str, Any]:
     """`fees_pct` / `slippage_pct` are decimal fractions (0.001 = 0.1%)."""
     df = normalize_ohlcv(candles)
+    if df.empty:
+        raise ValueError("No valid candles")
     executor = StrategyExecutor(strategy_graph)
 
     cash = float(starting_capital)
     position_qty = 0.0
     position_side: str | None = None
     entry_price = 0.0
+    entry_fee = 0.0
     stop_loss: float | None = None
     take_profit: float | None = None
     trade_history: list[dict[str, Any]] = []
@@ -56,7 +59,7 @@ def simulate_strategy_on_ohlcv(
             return
         fee = price * position_qty * fees_pct
         if position_side == "long":
-            pnl = (price - entry_price) * position_qty - fee
+            pnl = (price - entry_price) * position_qty - fee - entry_fee
             cash += price * position_qty - fee
         else:
             pnl = (entry_price - price) * position_qty - fee
@@ -77,7 +80,7 @@ def simulate_strategy_on_ohlcv(
 
     for i in range(len(df)):
         row = df.iloc[i]
-        current_price = float(row["close"])
+        current_price = float(row["open"])
         ts = _timestamp(row["timestamp"])
         slipped_buy = current_price * (1 + slippage_pct)
         slipped_sell = current_price * (1 - slippage_pct)
@@ -86,7 +89,7 @@ def simulate_strategy_on_ohlcv(
             {
                 "symbol": symbol,
                 "timeframe": timeframe,
-                "candles": df.iloc[: i + 1].copy(),
+                "candles": df.iloc[:i].copy(),
                 "current_price": current_price,
                 "sentiment": None,
             }
@@ -106,6 +109,7 @@ def simulate_strategy_on_ohlcv(
                     position_side = "long"
                     position_qty = amount
                     entry_price = slipped_buy
+                    entry_fee = fee
                     trade_history.append(
                         {
                             "timestamp": ts,
@@ -120,25 +124,6 @@ def simulate_strategy_on_ohlcv(
             elif signal.action == "sell" and position_side != "short":
                 if position_side == "long":
                     close_position(ts, slipped_sell, "sell")
-                else:
-                    amount = float(params.get("amount", 0.1))
-                    notional = slipped_sell * amount
-                    fee = notional * fees_pct
-                    cash += notional - fee
-                    position_side = "short"
-                    position_qty = amount
-                    entry_price = slipped_sell
-                    trade_history.append(
-                        {
-                            "timestamp": ts,
-                            "side": "sell",
-                            "price": round(slipped_sell, 8),
-                            "quantity": round(amount, 8),
-                            "pnl": None,
-                        }
-                    )
-                    if risk_pct is not None:
-                        stop_loss = entry_price * (1 + risk_pct / 100.0)
             elif signal.action == "set_stop_loss" and position_side and position_qty > 0:
                 pct = _risk_percent(params)
                 if pct is not None:
@@ -159,10 +144,10 @@ def simulate_strategy_on_ohlcv(
                     take_profit = float(params["price"])
 
         if position_side == "long" and position_qty > 0:
-            if stop_loss is not None and current_price <= stop_loss:
-                close_position(ts, stop_loss, "sell")
-            elif take_profit is not None and current_price >= take_profit:
-                close_position(ts, take_profit, "sell")
+            if stop_loss is not None and float(row["low"]) <= stop_loss:
+                close_position(ts, min(current_price, stop_loss) * (1 - slippage_pct), "sell")
+            elif take_profit is not None and float(row["high"]) >= take_profit:
+                close_position(ts, max(current_price, take_profit) * (1 - slippage_pct), "sell")
         elif position_side == "short" and position_qty > 0:
             if stop_loss is not None and current_price >= stop_loss:
                 close_position(ts, stop_loss, "buy")
@@ -170,7 +155,7 @@ def simulate_strategy_on_ohlcv(
                 close_position(ts, take_profit, "buy")
 
         if position_side == "long" and position_qty > 0:
-            equity = cash + position_qty * current_price
+            equity = cash + position_qty * float(row["close"])
         elif position_side == "short" and position_qty > 0:
             equity = cash + (entry_price - current_price) * position_qty
         else:
@@ -184,5 +169,6 @@ def simulate_strategy_on_ohlcv(
     elif position_side == "short":
         close_position(last_ts, last_price, "buy")
 
+    equity_curve[-1]["value"] = round(cash, 2)
     metrics = compute_metrics(equity_curve, trade_history, starting_capital)
     return {"metrics": metrics, "equity_curve": equity_curve, "trade_history": trade_history}

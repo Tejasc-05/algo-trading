@@ -49,6 +49,8 @@ async def run_backtest(
         raise AppError(code="VERSION_NOT_FOUND", message="Strategy version not found", status_code=404)
 
     graph = StrategyGraph.model_validate(version.graph_json)
+    if any(node.data.node_type in {'openLong', 'openShort', 'closePosition'} for node in graph.nodes):
+        raise AppError('FUTURES_BACKTEST_UNAVAILABLE', 'Futures funding and margin backtesting is not implemented. Use Binance demo for futures actions.', 422)
 
     # Convert percentages to decimals
     fees_decimal = payload.fees_pct / 100.0

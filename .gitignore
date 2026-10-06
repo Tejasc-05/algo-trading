@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local backend state and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.db
+*.sqlite
+*.sqlite3
+*.pyc
+
+# Browser QA artifacts and local scratch scripts
+.playwright-cli/
+work/

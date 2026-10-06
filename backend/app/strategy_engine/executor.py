@@ -39,7 +39,14 @@ class StrategyExecutor:
 
     def __init__(self, graph: StrategyGraph):
         self.graph = graph
+        from app.core.exceptions import AppError
+        validation = validate_strategy_graph(graph)
+        if not validation.valid:
+            raise AppError("INVALID_STRATEGY", validation.errors[0].message, 422)
         self._parse_result = parse_graph(graph)
+        for node in self._parse_result.graph.nodes.values():
+            node.params = get_node_definition(node.node_type).params_model.model_validate(node.params).model_dump()
+        self._execution_order = self._topological_order()
 
     def evaluate(self, market_context: dict[str, Any]) -> list[Signal]:
         """Evaluate the strategy against market data and return trading signals."""
@@ -49,7 +56,7 @@ class StrategyExecutor:
             return []
 
         # Topologically sort nodes for execution order
-        execution_order = self._topological_order()
+        execution_order = self._execution_order
 
         # Node outputs cache: node_id -> computed value (series or scalar)
         node_outputs: dict[str, Any] = {}
@@ -158,7 +165,7 @@ class StrategyExecutor:
             slow = int(node.params.get("slow", 26))
             signal_period = int(node.params.get("signal", 9))
             frame = indicator_ops.macd(series, fast, slow, signal_period)
-            return {key: frame[key].to_numpy() for key in frame.columns}
+            return frame[node.params.get("output", "macd")].to_numpy()
 
         if node.node_type == "bollinger_bands":
             period = int(node.params.get("period", 20))
@@ -177,15 +184,7 @@ class StrategyExecutor:
         sentiment = market_context.get("sentiment")
         if sentiment is None:
             return None
-        # Apply threshold filter if configured
-        threshold = float(node.params.get("threshold", 70)) / 100.0
-        label = node.params.get("label")
-        if label == "positive" and sentiment < threshold:
-            return False
-        if label == "negative" and sentiment > -threshold:
-            return False
-        return sentiment
-
+        return float(sentiment)
     # -------------------------------------------------------------------------
     # CONDITION nodes: comparisons + crosses
     # -------------------------------------------------------------------------
@@ -206,6 +205,8 @@ class StrategyExecutor:
         if len(inputs) < 1:
             return np.array([], dtype=bool)
         series = self._to_float_series(inputs[0])
+        if series is not None:
+            series = np.atleast_1d(series)
         if series is None:
             return np.array([], dtype=bool)
         if value is None:
@@ -238,12 +239,9 @@ class StrategyExecutor:
             return None
 
         # Upstream should be a boolean series (condition/logic output)
-        trigger = np.asarray(inputs[0])
-        if trigger.dtype != bool:
-            trigger = trigger.astype(bool)
-
-        # Only emit signal on the LAST bar where trigger is True
-        if len(trigger) == 0 or not trigger[-1]:
+        trigger = np.atleast_1d(inputs[0])
+        # Nullable boolean gates preserve unknown warm-up values.
+        if len(trigger) == 0 or not isinstance(trigger[-1], (bool, np.bool_)) or not trigger[-1]:
             return None
 
         action_type = node.node_type  # "buy" | "sell" | "hold"
@@ -260,11 +258,8 @@ class StrategyExecutor:
         if not inputs:
             return None
 
-        trigger = np.asarray(inputs[0])
-        if trigger.dtype != bool:
-            trigger = trigger.astype(bool)
-
-        if len(trigger) == 0 or not trigger[-1]:
+        trigger = np.atleast_1d(inputs[0])
+        if len(trigger) == 0 or not isinstance(trigger[-1], (bool, np.bool_)) or not trigger[-1]:
             return None
 
         action_type = "set_stop_loss" if node.node_type == "stopLoss" else "set_take_profit"

@@ -6,7 +6,7 @@ from app.strategy_engine.nodes.base import NodeCategory, NodeDefinition
 
 
 class SentimentParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     threshold: float = Field(default=70, ge=0, le=100)
     source: str = Field(default="AI", max_length=64)

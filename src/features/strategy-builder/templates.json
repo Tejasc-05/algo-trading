@@ -1,0 +1,540 @@
+[
+  {
+    "id": "ema-crossover",
+    "name": "EMA Trend Crossover",
+    "description": "EMA 20 crosses above EMA 50 to buy; crosses below to sell. Best explored in trending markets; sideways markets can whipsaw.",
+    "graph": {
+      "nodes": [
+        {
+          "id": "fast",
+          "type": "movingAverage",
+          "position": {
+            "x": 50,
+            "y": 70
+          },
+          "data": {
+            "label": "Fast EMA",
+            "nodeType": "movingAverage",
+            "params": {
+              "period": 20,
+              "type": "EMA"
+            }
+          }
+        },
+        {
+          "id": "slow",
+          "type": "movingAverage",
+          "position": {
+            "x": 50,
+            "y": 320
+          },
+          "data": {
+            "label": "Slow EMA",
+            "nodeType": "movingAverage",
+            "params": {
+              "period": 50,
+              "type": "EMA"
+            }
+          }
+        },
+        {
+          "id": "entry",
+          "type": "condition",
+          "position": {
+            "x": 350,
+            "y": 70
+          },
+          "data": {
+            "label": "Bullish Cross",
+            "nodeType": "condition",
+            "params": {
+              "operator": "crosses_above"
+            }
+          }
+        },
+        {
+          "id": "exit",
+          "type": "condition",
+          "position": {
+            "x": 350,
+            "y": 390
+          },
+          "data": {
+            "label": "Bearish Cross",
+            "nodeType": "condition",
+            "params": {
+              "operator": "crosses_below"
+            }
+          }
+        },
+        {
+          "id": "buy",
+          "type": "buy",
+          "position": {
+            "x": 650,
+            "y": 70
+          },
+          "data": {
+            "label": "Buy",
+            "nodeType": "buy",
+            "params": {
+              "amount": 0.001,
+              "type": "market"
+            }
+          }
+        },
+        {
+          "id": "sell",
+          "type": "sell",
+          "position": {
+            "x": 650,
+            "y": 390
+          },
+          "data": {
+            "label": "Sell",
+            "nodeType": "sell",
+            "params": {
+              "amount": 0.001,
+              "type": "market"
+            }
+          }
+        },
+        {
+          "id": "stop",
+          "type": "stopLoss",
+          "position": {
+            "x": 900,
+            "y": 70
+          },
+          "data": {
+            "label": "Stop Loss",
+            "nodeType": "stopLoss",
+            "params": {
+              "percent": 2
+            }
+          }
+        },
+        {
+          "id": "profit",
+          "type": "takeProfit",
+          "position": {
+            "x": 900,
+            "y": 260
+          },
+          "data": {
+            "label": "Take Profit",
+            "nodeType": "takeProfit",
+            "params": {
+              "percent": 5
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "fast-entry-left",
+          "source": "fast",
+          "target": "entry",
+          "sourceHandle": "source",
+          "targetHandle": "left",
+          "animated": true
+        },
+        {
+          "id": "slow-entry-right",
+          "source": "slow",
+          "target": "entry",
+          "sourceHandle": "source",
+          "targetHandle": "right",
+          "animated": true
+        },
+        {
+          "id": "fast-exit-left",
+          "source": "fast",
+          "target": "exit",
+          "sourceHandle": "source",
+          "targetHandle": "left",
+          "animated": true
+        },
+        {
+          "id": "slow-exit-right",
+          "source": "slow",
+          "target": "exit",
+          "sourceHandle": "source",
+          "targetHandle": "right",
+          "animated": true
+        },
+        {
+          "id": "entry-buy-target",
+          "source": "entry",
+          "target": "buy",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "exit-sell-target",
+          "source": "exit",
+          "target": "sell",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-stop-target",
+          "source": "entry",
+          "target": "stop",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-profit-target",
+          "source": "entry",
+          "target": "profit",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "rsi-reversion",
+    "name": "RSI Mean Reversion",
+    "description": "RSI 14 below 30 buys; above 70 sells. Intended for ranging markets; prolonged trends can invalidate reversal signals.",
+    "graph": {
+      "nodes": [
+        {
+          "id": "rsi",
+          "type": "rsi",
+          "position": {
+            "x": 50,
+            "y": 210
+          },
+          "data": {
+            "label": "RSI",
+            "nodeType": "rsi",
+            "params": {
+              "period": 14
+            }
+          }
+        },
+        {
+          "id": "entry",
+          "type": "condition",
+          "position": {
+            "x": 350,
+            "y": 70
+          },
+          "data": {
+            "label": "Oversold",
+            "nodeType": "condition",
+            "params": {
+              "operator": "<",
+              "value": 30
+            }
+          }
+        },
+        {
+          "id": "exit",
+          "type": "condition",
+          "position": {
+            "x": 350,
+            "y": 390
+          },
+          "data": {
+            "label": "Overbought",
+            "nodeType": "condition",
+            "params": {
+              "operator": ">",
+              "value": 70
+            }
+          }
+        },
+        {
+          "id": "buy",
+          "type": "buy",
+          "position": {
+            "x": 650,
+            "y": 70
+          },
+          "data": {
+            "label": "Buy",
+            "nodeType": "buy",
+            "params": {
+              "amount": 0.001,
+              "type": "market"
+            }
+          }
+        },
+        {
+          "id": "sell",
+          "type": "sell",
+          "position": {
+            "x": 650,
+            "y": 390
+          },
+          "data": {
+            "label": "Sell",
+            "nodeType": "sell",
+            "params": {
+              "amount": 0.001,
+              "type": "market"
+            }
+          }
+        },
+        {
+          "id": "stop",
+          "type": "stopLoss",
+          "position": {
+            "x": 900,
+            "y": 70
+          },
+          "data": {
+            "label": "Stop Loss",
+            "nodeType": "stopLoss",
+            "params": {
+              "percent": 2
+            }
+          }
+        },
+        {
+          "id": "profit",
+          "type": "takeProfit",
+          "position": {
+            "x": 900,
+            "y": 260
+          },
+          "data": {
+            "label": "Take Profit",
+            "nodeType": "takeProfit",
+            "params": {
+              "percent": 5
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "rsi-entry-target",
+          "source": "rsi",
+          "target": "entry",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "rsi-exit-target",
+          "source": "rsi",
+          "target": "exit",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-buy-target",
+          "source": "entry",
+          "target": "buy",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "exit-sell-target",
+          "source": "exit",
+          "target": "sell",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-stop-target",
+          "source": "entry",
+          "target": "stop",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-profit-target",
+          "source": "entry",
+          "target": "profit",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "macd-momentum",
+    "name": "MACD Momentum",
+    "description": "MACD 12/26/9 histogram above zero buys; below zero sells. Uses momentum state, rather than a crossover event; signals can lag.",
+    "graph": {
+      "nodes": [
+        {
+          "id": "macd",
+          "type": "macd",
+          "position": {
+            "x": 50,
+            "y": 210
+          },
+          "data": {
+            "label": "MACD Histogram",
+            "nodeType": "macd",
+            "params": {
+              "fast": 12,
+              "slow": 26,
+              "signal": 9,
+              "output": "histogram"
+            }
+          }
+        },
+        {
+          "id": "entry",
+          "type": "condition",
+          "position": {
+            "x": 350,
+            "y": 70
+          },
+          "data": {
+            "label": "Positive Momentum",
+            "nodeType": "condition",
+            "params": {
+              "operator": ">",
+              "value": 0
+            }
+          }
+        },
+        {
+          "id": "exit",
+          "type": "condition",
+          "position": {
+            "x": 350,
+            "y": 390
+          },
+          "data": {
+            "label": "Negative Momentum",
+            "nodeType": "condition",
+            "params": {
+              "operator": "<",
+              "value": 0
+            }
+          }
+        },
+        {
+          "id": "buy",
+          "type": "buy",
+          "position": {
+            "x": 650,
+            "y": 70
+          },
+          "data": {
+            "label": "Buy",
+            "nodeType": "buy",
+            "params": {
+              "amount": 0.001,
+              "type": "market"
+            }
+          }
+        },
+        {
+          "id": "sell",
+          "type": "sell",
+          "position": {
+            "x": 650,
+            "y": 390
+          },
+          "data": {
+            "label": "Sell",
+            "nodeType": "sell",
+            "params": {
+              "amount": 0.001,
+              "type": "market"
+            }
+          }
+        },
+        {
+          "id": "stop",
+          "type": "stopLoss",
+          "position": {
+            "x": 900,
+            "y": 70
+          },
+          "data": {
+            "label": "Stop Loss",
+            "nodeType": "stopLoss",
+            "params": {
+              "percent": 2
+            }
+          }
+        },
+        {
+          "id": "profit",
+          "type": "takeProfit",
+          "position": {
+            "x": 900,
+            "y": 260
+          },
+          "data": {
+            "label": "Take Profit",
+            "nodeType": "takeProfit",
+            "params": {
+              "percent": 5
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "macd-entry-target",
+          "source": "macd",
+          "target": "entry",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "macd-exit-target",
+          "source": "macd",
+          "target": "exit",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-buy-target",
+          "source": "entry",
+          "target": "buy",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "exit-sell-target",
+          "source": "exit",
+          "target": "sell",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-stop-target",
+          "source": "entry",
+          "target": "stop",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        },
+        {
+          "id": "entry-profit-target",
+          "source": "entry",
+          "target": "profit",
+          "sourceHandle": "source",
+          "targetHandle": "target",
+          "animated": true
+        }
+      ]
+    }
+  }
+]

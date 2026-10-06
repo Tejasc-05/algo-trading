@@ -5,6 +5,7 @@ import redis.asyncio as redis
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any
 
 from app.core.config import get_settings
 from app.core.exceptions import RateLimitedError, UnauthorizedError
@@ -40,7 +41,7 @@ async def get_current_user(
     return user
 
 
-async def get_user_from_websocket(websocket: Request | any) -> User | None:
+async def get_user_from_websocket(websocket: Request | Any) -> User | None:
     token = websocket.query_params.get("token")
     if not token:
         auth = websocket.headers.get("authorization")
@@ -62,8 +63,8 @@ async def get_user_from_websocket(websocket: Request | any) -> User | None:
     user_id = payload.get("sub")
     if not user_id:
         return None
-    from app.database.database import async_session_factory
-    async with async_session_factory() as db:
+    from app.database.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
         user = await UserRepository(db).get(user_id)
         if user and user.is_active:
             return user

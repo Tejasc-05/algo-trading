@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Edge, Node } from '@xyflow/react'
+import templates from '@/features/strategy-builder/templates.json'
 
 export type NodeType =
   | 'rsi'
@@ -11,6 +12,9 @@ export type NodeType =
   | 'condition'
   | 'stopLoss'
   | 'takeProfit'
+  | 'openLong'
+  | 'openShort'
+  | 'closePosition'
 
 export interface StrategyNodeData extends Record<string, unknown> {
   label: string
@@ -19,6 +23,8 @@ export interface StrategyNodeData extends Record<string, unknown> {
 }
 
 interface StrategyState {
+  savedStrategyId: string | null
+  description: string
   strategyName: string
   nodes: Node<StrategyNodeData>[]
   edges: Edge[]
@@ -31,44 +37,20 @@ interface StrategyState {
   addNode: (node: Node<StrategyNodeData>) => void
   removeNode: (nodeId: string) => void
   updateNodeParams: (nodeId: string, params: Record<string, string | number>) => void
+  loadTemplate: (name: string, nodes: Node<StrategyNodeData>[], edges: Edge[]) => void
+  loadSaved: (id: string, name: string, description: string, nodes: Node<StrategyNodeData>[], edges: Edge[]) => void
+  setSavedStrategyId: (id: string) => void
+  reset: () => void
   markSaved: () => void
 }
 
-const initialNodes: Node<StrategyNodeData>[] = [
-  {
-    id: 'rsi-1',
-    type: 'rsi',
-    position: { x: 100, y: 150 },
-    data: { label: 'RSI', nodeType: 'rsi', params: { period: 14, oversold: 30, overbought: 70 } },
-  },
-  {
-    id: 'condition-1',
-    type: 'condition',
-    position: { x: 350, y: 150 },
-    data: { label: 'Condition', nodeType: 'condition', params: { operator: '<', value: 30 } },
-  },
-  {
-    id: 'buy-1',
-    type: 'buy',
-    position: { x: 600, y: 100 },
-    data: { label: 'Buy', nodeType: 'buy', params: { amount: 0.1, type: 'market' } },
-  },
-  {
-    id: 'stopLoss-1',
-    type: 'stopLoss',
-    position: { x: 600, y: 250 },
-    data: { label: 'Stop Loss', nodeType: 'stopLoss', params: { percent: 2 } },
-  },
-]
-
-const initialEdges: Edge[] = [
-  { id: 'e1', source: 'rsi-1', target: 'condition-1', sourceHandle: 'source', targetHandle: 'target', animated: true },
-  { id: 'e2', source: 'condition-1', target: 'buy-1', sourceHandle: 'source', targetHandle: 'target', animated: true },
-  { id: 'e3', source: 'condition-1', target: 'stopLoss-1', sourceHandle: 'source', targetHandle: 'target', animated: true },
-]
+const initialNodes = structuredClone(templates[1].graph.nodes) as unknown as Node<StrategyNodeData>[]
+const initialEdges: Edge[] = structuredClone(templates[1].graph.edges)
 
 export const useStrategyStore = create<StrategyState>((set) => ({
-  strategyName: 'RSI Oversold Strategy',
+  savedStrategyId: null,
+  description: '',
+  strategyName: templates[1].name,
   nodes: initialNodes,
   edges: initialEdges,
   isDirty: false,
@@ -93,9 +75,14 @@ export const useStrategyStore = create<StrategyState>((set) => ({
   updateNodeParams: (nodeId, params) =>
     set((s) => ({
       nodes: s.nodes.map((n) =>
-        n.id === nodeId ? { ...n, data: { ...n.data, params: { ...n.data.params, ...params } } } : n
+        n.id === nodeId ? { ...n, data: { ...n.data, params } } : n
       ),
       isDirty: true,
     })),
   markSaved: () => set({ isDirty: false }),
+  loadTemplate: (name, nodes, edges) => set({ strategyName: name, nodes, edges, description: '', savedStrategyId: null, isDirty: true }),
+  loadSaved: (id, name, description, nodes, edges) => set({ savedStrategyId: id, strategyName: name, description, nodes, edges, isDirty: false }),
+  setSavedStrategyId: (id) => set({ savedStrategyId: id }),
+  reset: () => set({ savedStrategyId: null, description: '', strategyName: templates[1].name,
+    nodes: structuredClone(initialNodes), edges: structuredClone(initialEdges), isDirty: false }),
 }))

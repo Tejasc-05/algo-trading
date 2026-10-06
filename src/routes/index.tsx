@@ -11,6 +11,10 @@ import { SentimentPage } from '@/pages/SentimentPage'
 import { PortfolioPage } from '@/pages/PortfolioPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 
+function ProtectedLayout() {
+  return localStorage.getItem('access_token') ? <MainLayout /> : <Navigate to="/login" replace />
+}
+
 export const router = createBrowserRouter([
   {
     path: '/',
@@ -25,7 +29,7 @@ export const router = createBrowserRouter([
     ],
   },
   {
-    element: <MainLayout />,
+    element: <ProtectedLayout />,
     children: [
       { path: '/dashboard', element: <DashboardPage /> },
       { path: '/strategy-builder', element: <StrategyBuilderPage /> },

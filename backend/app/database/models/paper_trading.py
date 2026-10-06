@@ -21,13 +21,15 @@ class PaperAccount(Base, TimestampMixin):
     strategy_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Paper Account")
-    currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USDT")
-    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="BTC/USDT")
-    timeframe: Mapped[str] = mapped_column(String(16), nullable=False, default="1h")
+    strategy_version_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("strategy_versions.id", ondelete="SET NULL"), nullable=True)
+    last_processed_bar: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Paper Account", server_default="Paper Account")
+    currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USDT", server_default="USDT")
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="BTC/USDT", server_default="BTC/USDT")
+    timeframe: Mapped[str] = mapped_column(String(16), nullable=False, default="1h", server_default="1h")
     starting_balance: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     balance: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
 
 class Order(Base, TimestampMixin):
@@ -55,7 +57,7 @@ class Order(Base, TimestampMixin):
     side: Mapped[OrderSide] = mapped_column(Enum(OrderSide, native_enum=False), nullable=False)
     order_type: Mapped[OrderType] = mapped_column(Enum(OrderType, native_enum=False), nullable=False)
     status: Mapped[OrderStatus] = mapped_column(
-        Enum(OrderStatus, native_enum=False), nullable=False, default=OrderStatus.PENDING, index=True
+        Enum(OrderStatus, native_enum=False), nullable=False, default=OrderStatus.PENDING, server_default="PENDING", index=True
     )
     quantity: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     price: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
@@ -74,7 +76,7 @@ class Trade(Base, TimestampMixin):
     )
     executed_price: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     executed_quantity: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
-    fee: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=0)
+    fee: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False, default=0, server_default="0")
     pnl: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 

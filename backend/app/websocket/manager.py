@@ -27,7 +27,7 @@ class WebSocketManager:
 
     async def connect(self, user_id: str, websocket: WebSocket) -> None:
         """Accept a new WebSocket connection for a user."""
-        await websocket.accept()
+        await websocket.accept(subprotocol="algoflow" if "algoflow" in websocket.headers.get("sec-websocket-protocol", "") else None)
         if user_id not in self._connections:
             self._connections[user_id] = []
         self._connections[user_id].append(websocket)
@@ -83,6 +83,11 @@ async def websocket_endpoint(webSocket: WebSocket) -> None:
     to the client until the connection is closed."""
     from app.api.dependencies import get_user_from_websocket
 
+    from app.core.config import get_settings
+    origin = webSocket.headers.get("origin")
+    if origin and origin not in get_settings().cors_origins_list:
+        await webSocket.close(code=1008)
+        return
     user = await get_user_from_websocket(webSocket)
     if user is None:
         await webSocket.close(code=1008)
@@ -111,12 +116,18 @@ async def websocket_endpoint(webSocket: WebSocket) -> None:
     finally:
         if "redis_task" in locals():
             redis_task.cancel()
+            from contextlib import suppress
+            with suppress(asyncio.CancelledError):
+                await redis_task
+        manager.disconnect(user.id, webSocket)
 
 
 async def _relay_redis_to_websocket(user_id: str, websocket: WebSocket, redis_messages) -> None:
     """Relay Redis pub/sub messages to the WebSocket client."""
-    async for message in redis_messages:
-        try:
+    try:
+        async for message in redis_messages:
             await websocket.send_text(message)
-        except Exception:
-            break
+    finally:
+        from contextlib import suppress
+        with suppress(Exception):
+            await websocket.close(code=1013)

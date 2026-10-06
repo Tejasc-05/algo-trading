@@ -22,6 +22,11 @@ import { NodePalette } from '@/features/strategy-builder/NodePalette'
 import { nodeTypes } from '@/features/strategy-builder/nodes/StrategyNodes'
 import { useStrategyStore, type StrategyNodeData } from '@/store/useStrategyStore'
 import { api } from '@/lib/api'
+import spotTemplates from './templates.json'
+import futuresTemplates from './futures-templates.json'
+const templates = [...spotTemplates, ...futuresTemplates]
+import { parameterError, visibleParameters } from './parameters'
+import { useApi } from '@/hooks/useApi'
 
 let nodeId = 100
 
@@ -37,24 +42,36 @@ export function StrategyCanvas() {
     setEdges,
     markSaved,
     removeNode,
+    loadTemplate,
+    loadSaved,
+    savedStrategyId,
+    setSavedStrategyId,
+    description,
   } = useStrategyStore()
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [testStatus, setTestStatus] = useState('Ready')
   const [signalOutput, setSignalOutput] = useState<string[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [savedStrategyId, setSavedStrategyId] = useState<string | null>(null)
+  const [templateId, setTemplateId] = useState('')
+  const [selectedSavedId, setSelectedSavedId] = useState('')
+  const savedStrategies = useApi(() => api.strategies.list())
+  const [canvasRevision, setCanvasRevision] = useState(0)
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<StrategyNodeData>>[]) => {
-      setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
+      useStrategyStore.setState(state => ({
+        nodes: applyNodeChanges(changes, state.nodes),
+        isDirty: state.isDirty || changes.some(change => !['dimensions', 'select'].includes(change.type)),
+      }))
     },
     [setNodes]
   )
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      setEdges((currentEdges) => applyEdgeChanges(changes, currentEdges))
+      useStrategyStore.setState(state => ({ edges: applyEdgeChanges(changes, state.edges),
+        isDirty: state.isDirty || changes.some(change => change.type !== 'select') }))
     },
     [setEdges]
   )
@@ -112,86 +129,107 @@ export function StrategyCanvas() {
   }
 
   const buildGraphPayload = () => {
+    if (!strategyName.trim()) throw new Error('Enter a strategy name')
     return {
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        type: n.type,
-        position: n.position,
-        data: n.data,
-      })),
-      edges: edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        animated: e.animated,
-      })),
+      nodes: nodes.map((node) => {
+        const params = visibleParameters(node.data)
+        for (const key of Object.keys(params)) {
+          const error = parameterError({ ...node.data, params }, key)
+          if (error) throw new Error(`${node.data.label}: ${key} — ${error}`)
+        }
+        const numericParams = Object.fromEntries(Object.entries(params).map(([key, value]) =>
+          [key, ['type', 'operator', 'source', 'output', 'label'].includes(key) ? value : Number(value)]))
+        return { id: node.id, type: node.type, position: node.position,
+          data: { ...node.data, params: numericParams } }
+      }),
+      edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target,
+        sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle, animated: edge.animated })),
     }
+  }
+
+  const persistCurrentGraph = async () => {
+    const sessionToken = localStorage.getItem('access_token')
+    const graph = buildGraphPayload()
+    const validation = await api.strategies.validateGraph(graph)
+    if (!validation.valid) throw new Error(validation.errors.map((issue: { message: string }) => issue.message).join('; '))
+    if (sessionToken !== localStorage.getItem('access_token')) throw new Error('Your session changed')
+    const payload = { name: strategyName.trim(), description, graph }
+    const result = savedStrategyId
+      ? await api.strategies.update(savedStrategyId, payload)
+      : await api.strategies.create(payload)
+    if (sessionToken !== localStorage.getItem('access_token')) throw new Error('Your session changed; reopen this strategy after signing in')
+    setSavedStrategyId(result.id)
+    setSelectedSavedId(result.id)
+    markSaved()
+    window.dispatchEvent(new Event('algoflow:update'))
+    return result
   }
 
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      const graph = buildGraphPayload()
-      const result = await api.strategies.create({
-        name: strategyName,
-        description: '',
-        graph,
-      })
-      setSavedStrategyId(result.id)
-      markSaved()
+      const result = await persistCurrentGraph()
       setTestStatus(`Saved: ${result.name} (v${result.current_version})`)
-    } catch (err: any) {
-      setTestStatus(`Save failed: ${err.message}`)
-    } finally {
-      setIsSaving(false)
-    }
+    } catch (err) {
+      setTestStatus(`Save failed: ${err instanceof Error ? err.message : 'Unable to save'}`)
+    } finally { setIsSaving(false) }
   }
 
   const handleTestRun = async () => {
     setIsExecuting(true)
     setSignalOutput([])
     try {
-      let strategyId: string | null = savedStrategyId
-
-      // If strategy not yet saved, create it first
-      if (!strategyId) {
-        const graph = buildGraphPayload()
-        const created = await api.strategies.create({
-          name: strategyName,
-          description: '',
-          graph,
-        })
-        strategyId = created.id
-        setSavedStrategyId(strategyId)
-        markSaved()
-      }
-
-      if (!strategyId) {
-        throw new Error('Failed to create or find strategy')
-      }
-
-      // Execute the strategy
-      const result = await api.strategies.execute(strategyId)
-
+      // Always persist the graph on screen; execution reads its latest version.
+      const strategy = await persistCurrentGraph()
+      const validation = await api.strategies.validate(strategy.id)
+      if (!validation.valid) throw new Error(validation.errors.map((issue: { message: string }) => issue.message).join('; '))
+      const result = await api.strategies.execute(strategy.id)
       const signals = result.signals || []
-      if (signals.length === 0) {
-        setTestStatus('No signals generated')
-        setSignalOutput(['No BUY/SELL signals detected'])
-      } else {
-        setTestStatus(`Executed: ${signals.length} signal(s)`)
-        setSignalOutput(
-          signals.map(
-            (s: any) =>
-              `${s.action.toUpperCase()} (${s.node_id}) — ${JSON.stringify(s.params)}`
-          )
-        )
-      }
-    } catch (err: any) {
-      setTestStatus(`Execution failed: ${err.message}`)
-      setSignalOutput([`Error: ${err.message}`])
-    } finally {
-      setIsExecuting(false)
-    }
+      setTestStatus(signals.length ? `Executed: ${signals.length} signal(s)` : 'No signals generated')
+      setSignalOutput(signals.length ? signals.map((signal: { action: string; node_id: string; params: unknown }) =>
+        `${signal.action.toUpperCase()} (${signal.node_id}) — ${JSON.stringify(signal.params)}`)
+        : ['No BUY/SELL signals detected on the latest closed candle'])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to execute'
+      setTestStatus(`Execution failed: ${message}`)
+      setSignalOutput([`Error: ${message}`])
+    } finally { setIsExecuting(false) }
+  }
+
+  const applyTemplate = () => {
+    const template = templates.find(item => item.id === templateId)
+    if (!template) return
+    if (isDirty && !window.confirm('Replace the current unsaved graph with this template?')) return
+    const graph = structuredClone(template.graph)
+    loadTemplate(template.name, graph.nodes as unknown as Node<StrategyNodeData>[], graph.edges)
+    setCanvasRevision(revision => revision + 1)
+    setSelectedSavedId('')
+    setSelectedNodeIds([])
+    setSignalOutput([])
+    useStrategyStore.setState({ description: template.description })
+    setTestStatus('Template loaded — review quantity and risk before saving')
+  }
+
+  const openSavedStrategy = async () => {
+    if (!selectedSavedId) return
+    if (isDirty && !window.confirm('Replace the current unsaved graph with the saved strategy?')) return
+    const sessionToken = localStorage.getItem('access_token')
+    setIsSaving(true)
+    try {
+      const strategy = await api.strategies.get(selectedSavedId)
+      if (sessionToken !== localStorage.getItem('access_token')) throw new Error('Your session changed')
+      const latest = strategy.versions.find((version: { version_number: number }) => version.version_number === strategy.current_version)
+      if (!latest) throw new Error('This strategy has no saved graph')
+      const graph = structuredClone(latest.graph)
+      loadSaved(strategy.id, strategy.name, strategy.description ?? '', graph.nodes, graph.edges)
+      setTemplateId('')
+      setSelectedNodeIds([])
+      setSignalOutput([])
+      setCanvasRevision(revision => revision + 1)
+      setTestStatus(`Opened: ${strategy.name} (v${strategy.current_version})`)
+    } catch (err) {
+      setTestStatus(`Open failed: ${err instanceof Error ? err.message : 'Unable to open strategy'}`)
+    } finally { setIsSaving(false) }
   }
 
   const handleDeleteSelected = () => {
@@ -219,9 +257,36 @@ export function StrategyCanvas() {
       <NodePalette onDragStart={onDragStart} />
 
       <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
+          <label htmlFor="saved-strategy" className="text-sm">My Saved Strategies</label>
+          <select id="saved-strategy" value={selectedSavedId} onChange={event => setSelectedSavedId(event.target.value)}
+            disabled={savedStrategies.loading || isExecuting || isSaving}
+            className="max-w-xs rounded border border-border bg-background px-3 py-2 text-sm">
+            <option value="">{savedStrategies.loading ? 'Loading…' : 'Choose a saved strategy'}</option>
+            {(savedStrategies.data ?? []).map((strategy: { id: string; name: string }) =>
+              <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
+          </select>
+          <Button size="sm" variant="outline" onClick={openSavedStrategy} disabled={!selectedSavedId || isExecuting || isSaving}>Open Strategy</Button>
+          {savedStrategies.error ? <p role="alert" className="text-xs text-destructive">Unable to load your strategies.</p>
+            : !savedStrategies.loading && savedStrategies.data?.length === 0 && <p className="text-xs text-muted-foreground">No saved strategies yet. Load a template and save it.</p>}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
+          <label htmlFor="strategy-template" className="text-sm">Prebuilt strategies</label>
+          <select id="strategy-template" className="rounded border border-border bg-background px-3 py-2 text-sm"
+            value={templateId} onChange={event => setTemplateId(event.target.value)} disabled={isExecuting || isSaving}>
+            <option value="">Choose a template</option>
+            {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+          </select>
+          <Button size="sm" variant="outline" onClick={applyTemplate} disabled={!templateId || isExecuting || isSaving}>Load Template</Button>
+          <p className="text-xs text-muted-foreground">Editable starting points. Quantity is in base asset units; defaults are examples.</p>
+          {templateId && <p className="w-full text-xs text-muted-foreground">{templates.find(item => item.id === templateId)?.description}</p>}
+        </div>
         <div className="flex items-center justify-between gap-4 p-4 border-b border-border">
           <div className="flex items-center gap-3 min-w-0">
             <Input
+              aria-label="Strategy name"
+              maxLength={255}
+              disabled={isExecuting || isSaving}
               value={strategyName}
               onChange={(e) => setStrategyName(e.target.value)}
               className="max-w-xs h-9 font-medium bg-transparent border-none text-base focus-visible:ring-0 px-0"
@@ -248,7 +313,7 @@ export function StrategyCanvas() {
               <Trash2 className="h-4 w-4 mr-1" />
               Delete Selected
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={isSaving}>
+            <Button size="sm" onClick={handleSave} disabled={isSaving || isExecuting}>
               <Save className="h-4 w-4" />
               {isSaving ? 'Saving...' : 'Save Strategy'}
             </Button>
@@ -267,9 +332,12 @@ export function StrategyCanvas() {
           </div>
         )}
 
-        <div ref={reactFlowWrapper} className="flex-1">
+        <div ref={reactFlowWrapper} className={`flex-1 ${isExecuting || isSaving ? 'pointer-events-none' : ''}`}>
           <ReactFlow
+            key={canvasRevision}
             nodes={nodes}
+            nodesDraggable={!isExecuting && !isSaving}
+            nodesConnectable={!isExecuting && !isSaving}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}

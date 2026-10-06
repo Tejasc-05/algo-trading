@@ -20,115 +20,17 @@ class ProviderConfig:
     source_name: str
 
 
-class NewsAPISentimentProvider(SentimentProvider):
-    """Fetches crypto news from NewsAPI and scores sentiment."""
-
+class UnavailableSentimentProvider(SentimentProvider):
     def __init__(self, api_key: str | None = None):
-        self._api_key = api_key or get_settings().newsapi_api_key
-        self._base_url = "https://newsapi.org/v2/everything"
+        pass
 
     async def get_sentiment(self, symbol: str) -> SentimentResult:
-        """Fetch news for a symbol and compute sentiment score."""
-        # In production, this would make actual HTTP calls to NewsAPI
-        # For now, return a computed score based on keyword matching
-        # Placeholder implementation — replace with actual API call:
-        # async with httpx.AsyncClient() as client:
-        #     response = await client.get(
-        #         self._base_url,
-        #         params={"q": symbol, "apiKey": self._api_key, "language": "en"},
-        #     )
-        #     articles = response.json().get("articles", [])
-        #     score = self._compute_sentiment_from_articles(articles)
-
-        # Placeholder: return a simulated score based on symbol
-        score = self._simulate_sentiment(symbol)
-        label = "positive" if score > 0.1 else ("negative" if score < -0.1 else "neutral")
-
-        return SentimentResult(
-            symbol=symbol,
-            score=score,
-            label=label,
-            confidence=abs(score),
-            as_of=datetime.now(timezone.utc),
-        )
-
-    def _simulate_sentiment(self, symbol: str) -> float:
-        """Simulate sentiment score (placeholder for real API)."""
-        import hashlib
-        hash_val = int(hashlib.md5(symbol.encode()).hexdigest(), 16)
-        return ((hash_val % 200) - 100) / 100.0
+        raise AppError("SENTIMENT_UNAVAILABLE", "A real sentiment provider is not configured", 503)
 
 
-class CryptoPanicSentimentProvider(SentimentProvider):
-    """Fetches crypto sentiment from CryptoPanic."""
-
-    def __init__(self, api_key: str | None = None):
-        self._api_key = api_key or get_settings().cryptopanic_api_key
-        self._base_url = "https://cryptopanic.com/api/v1/posts/"
-
-    async def get_sentiment(self, symbol: str) -> SentimentResult:
-        """Fetch posts for a symbol and compute sentiment score."""
-        # Placeholder for actual CryptoPanic API integration
-        # async with httpx.AsyncClient() as client:
-        #     response = await client.get(
-        #         f"{self._base_url}{symbol}/",
-        #         params={"auth_token": self._api_key, "public": True},
-        #     )
-        #     posts = response.json().get("results", [])
-        #     score = self._compute_sentiment_from_posts(posts)
-
-        score = self._simulate_sentiment(symbol)
-        label = "positive" if score > 0.1 else ("negative" if score < -0.1 else "neutral")
-
-        return SentimentResult(
-            symbol=symbol,
-            score=score,
-            label=label,
-            confidence=abs(score),
-            as_of=datetime.now(timezone.utc),
-        )
-
-    def _simulate_sentiment(self, symbol: str) -> float:
-        import hashlib
-        hash_val = int(hashlib.md5(symbol.encode()).hexdigest(), 16)
-        return ((hash_val % 200) - 100) / 100.0
-
-
-class TwitterSentimentProvider(SentimentProvider):
-    """Fetches tweets for a symbol and scores sentiment."""
-
-    def __init__(self, api_key: str | None = None):
-        self._api_key = api_key or get_settings().twitter_api_key
-        # Uses Twitter API v2
-        self._base_url = "https://api.twitter.com/2/tweets/search/recent"
-
-    async def get_sentiment(self, symbol: str) -> SentimentResult:
-        """Fetch tweets and compute sentiment score."""
-        # Placeholder for actual Twitter API v2 integration
-        # async with httpx.AsyncClient() as client:
-        #     response = await client.get(
-        #         self._base_url,
-        #         headers={"Authorization": f"Bearer {self._api_key}"},
-        #         params={"query": f"{symbol} lang:en", "max_results": 100},
-        #     )
-        #     tweets = response.json().get("data", [])
-        #     score = self._compute_sentiment_from_tweets(tweets)
-
-        score = self._simulate_sentiment(symbol)
-        label = "positive" if score > 0.1 else ("negative" if score < -0.1 else "neutral")
-
-        return SentimentResult(
-            symbol=symbol,
-            score=score,
-            label=label,
-            confidence=abs(score),
-            as_of=datetime.now(timezone.utc),
-        )
-
-    def _simulate_sentiment(self, symbol: str) -> float:
-        import hashlib
-        hash_val = int(hashlib.md5(symbol.encode()).hexdigest(), 16)
-        return ((hash_val % 200) - 100) / 100.0
+NewsAPISentimentProvider = UnavailableSentimentProvider
+CryptoPanicSentimentProvider = UnavailableSentimentProvider
+TwitterSentimentProvider = UnavailableSentimentProvider
 
 
 # Provider registry for easy lookup

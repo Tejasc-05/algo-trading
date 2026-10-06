@@ -25,7 +25,7 @@ class ExchangeConnection(Base, TimestampMixin):
     api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     api_secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     passphrase_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_testnet: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_testnet: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
     user: Mapped["User"] = relationship()

@@ -22,6 +22,8 @@ async def lifespan(app: FastAPI):
     logger.info("AlgoFlow API starting", extra={"environment": settings.environment})
     yield
     await engine.dispose()
+    from app.redis.client import redis_pool
+    await redis_pool.disconnect()
     logger.info("AlgoFlow API shut down")
 
 

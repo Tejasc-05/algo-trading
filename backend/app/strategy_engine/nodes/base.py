@@ -38,7 +38,7 @@ TERMINAL_CATEGORIES = {NodeCategory.ACTION, NodeCategory.RISK}
 class EmptyParams(BaseModel):
     """Used by node types that take no configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class NodeDefinition(ABC):

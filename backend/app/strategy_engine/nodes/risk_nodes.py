@@ -4,7 +4,7 @@ from app.strategy_engine.nodes.base import NodeCategory, NodeDefinition
 
 
 class RiskParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     percent: float = Field(gt=0, le=100)
 

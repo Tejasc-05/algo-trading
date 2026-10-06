@@ -6,7 +6,7 @@ from app.strategy_engine.nodes.base import EmptyParams, NodeCategory, NodeDefini
 
 
 class ActionParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     amount: float = Field(gt=0)
     type: Literal["market", "limit"] = "market"
@@ -44,3 +44,18 @@ class HoldNode(NodeDefinition):
     params_model = EmptyParams
     default_min_inputs = 1
     default_max_inputs = 1
+
+
+class OpenLongNode(BuyNode):
+    node_type = "openLong"
+    label = "Open Futures Long"
+
+
+class OpenShortNode(BuyNode):
+    node_type = "openShort"
+    label = "Open Futures Short"
+
+
+class ClosePositionNode(HoldNode):
+    node_type = "closePosition"
+    label = "Close Futures Position"

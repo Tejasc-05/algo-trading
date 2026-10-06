@@ -47,6 +47,11 @@ def validate_strategy_graph(graph: StrategyGraph) -> StrategyValidationResult:
 
         min_inputs, max_inputs = definition.input_arity(node.params)
         n_in = len(parsed.incoming.get(node.id, []))
+        if node.node_type == "condition" and node.params.get("operator") in {"crosses_above", "crosses_below"}:
+            ports = [edge.target_handle for edge in graph.edges if edge.target == node.id]
+            if any(port in {"left", "right"} for port in ports) and sorted(str(port) for port in ports) != ["left", "right"]:
+                issues.append(ValidationIssue(node_id=node.id, code="INVALID_CROSSOVER_PORTS",
+                    message="Crossover needs one connection to A (left) and one to B (right)", severity="error"))
         if n_in < min_inputs:
             issues.append(
                 ValidationIssue(
@@ -96,6 +101,21 @@ def validate_strategy_graph(graph: StrategyGraph) -> StrategyValidationResult:
                         severity="warning",
                     )
                 )
+
+    for target_id, incoming in parsed.incoming.items():
+        target = get_node_definition(parsed.nodes[target_id].node_type)
+        if target is None:
+            continue
+        for source_id in incoming:
+            source = get_node_definition(parsed.nodes[source_id].node_type)
+            if source is None:
+                continue
+            if target.category in {NodeCategory.ACTION, NodeCategory.RISK, NodeCategory.LOGIC} and source.category not in GATE_CATEGORIES:
+                issues.append(ValidationIssue(node_id=target_id, code="INVALID_CONNECTION",
+                    message="Actions, risk and logic nodes require boolean condition/logic inputs", severity="error"))
+            if target.category in {NodeCategory.CONDITION, NodeCategory.INDICATOR} and source.category not in SOURCE_CATEGORIES:
+                issues.append(ValidationIssue(node_id=target_id, code="INVALID_CONNECTION",
+                    message="Conditions and indicators require numeric source inputs", severity="error"))
 
     cycle_node_ids = _find_cycle_nodes(parsed)
     if cycle_node_ids:

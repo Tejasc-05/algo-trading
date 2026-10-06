@@ -19,7 +19,8 @@ async def publish_event(channel: str, payload: dict) -> None:
     client = None
     try:
         client = get_redis_client()
-        message = json.dumps(payload)
+        from fastapi.encoders import jsonable_encoder
+        message = json.dumps(jsonable_encoder(payload), allow_nan=False)
         await client.publish(channel, message)
     except Exception as exc:
         logger.warning("Failed to publish event to Redis channel %s: %s", channel, exc)
@@ -39,7 +40,12 @@ async def subscribe(channel: str) -> AsyncGenerator[str, None]:
     client = None
     pubsub = None
     try:
-        client = get_redis_client()
+        import redis.asyncio as redis
+        from app.core.config import get_settings
+        # Pub/sub waits indefinitely for events; ordinary cache socket timeouts
+        # must not terminate an idle subscription.
+        client = redis.Redis.from_url(get_settings().redis_url, decode_responses=True,
+            socket_connect_timeout=3, socket_timeout=None)
         pubsub = client.pubsub()
         await pubsub.subscribe(channel)
         async for message in pubsub.listen():

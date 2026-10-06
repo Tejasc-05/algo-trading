@@ -20,7 +20,7 @@ class Portfolio(Base, TimestampMixin):
     paper_account_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("paper_accounts.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Default Portfolio")
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Default Portfolio", server_default="Default Portfolio")
 
     positions: Mapped[list["Position"]] = relationship(back_populates="portfolio", cascade="all, delete-orphan")
 
@@ -36,8 +36,11 @@ class Position(Base, TimestampMixin):
     side: Mapped[PositionSide] = mapped_column(Enum(PositionSide, native_enum=False), nullable=False)
     quantity: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     average_entry_price: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
-    is_open: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    is_open: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true", index=True)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    stop_loss: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
+    last_mark_price: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     portfolio: Mapped["Portfolio"] = relationship(back_populates="positions")

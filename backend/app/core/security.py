@@ -51,7 +51,7 @@ class TokenError(Exception):
 
 def decode_access_token(token: str) -> dict[str, Any]:
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm], options={"require": ["sub", "exp", "iat", "type"]})
     except jwt.ExpiredSignatureError as exc:
         raise TokenError("Token has expired") from exc
     except jwt.InvalidTokenError as exc:

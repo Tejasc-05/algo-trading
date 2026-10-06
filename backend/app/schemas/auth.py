@@ -1,15 +1,24 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
-class RegisterRequest(BaseModel):
+class PasswordRequest(BaseModel):
+    @field_validator("password", check_fields=False)
+    @classmethod
+    def password_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password exceeds the 72-byte hashing limit")
+        return value
+
+
+class RegisterRequest(PasswordRequest):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(PasswordRequest):
     email: EmailStr
     password: str
 

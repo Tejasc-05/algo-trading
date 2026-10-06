@@ -26,7 +26,7 @@ export function TopNavbar({ title }: TopNavbarProps) {
         <div className="flex items-center gap-2">
           <Circle className={cn('h-2 w-2 fill-current', marketOpen ? 'text-success' : 'text-destructive')} />
           <span className="text-xs text-muted-foreground hidden md:inline">
-            {marketOpen ? 'Markets Open' : 'Markets Closed'}
+            {marketOpen ? 'Paper Mode' : 'Disconnected'}
           </span>
         </div>
       </div>

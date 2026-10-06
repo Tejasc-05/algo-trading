@@ -10,6 +10,7 @@ from app.database.models.exchange_connection import ExchangeConnection  # noqa: 
 from app.database.models.paper_trading import Order, PaperAccount, Trade  # noqa: F401
 from app.database.models.portfolio import Portfolio, Position  # noqa: F401
 from app.database.models.backtest import Backtest, BacktestResult  # noqa: F401
+from app.database.models.futures import DemoSession, DemoOrder  # noqa: F401
 
 __all__ = [
     "Base",

@@ -62,8 +62,8 @@ def compute_metrics(
     max_drawdown_pct = abs(min(max_drawdown_pct, 0.0))  # report as positive percentage
 
     # Trade stats
-    pnls = [float(t.get("pnl") or 0.0) for t in trade_history]
-    num_trades = len(trade_history)
+    pnls = [float(t["pnl"]) for t in trade_history if t.get("pnl") is not None]
+    num_trades = len(pnls)
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p < 0]
     win_rate_pct = (len(wins) / num_trades * 100.0) if num_trades > 0 else 0.0

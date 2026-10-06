@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion'
-import { Brain, ExternalLink, MessageCircle, Newspaper, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { Brain, ExternalLink, MessageCircle, Newspaper } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { newsItems, sentimentData, socialPosts } from '@/data/mockData'
+import { useApi } from '@/hooks/useApi'
+import { api } from '@/lib/api'
 import { cn } from '@/utils/cn'
 
 function SentimentGauge({ value, label }: { value: number; label: string }) {
@@ -42,6 +43,11 @@ const sentimentBadge = {
 }
 
 export function SentimentPage() {
+  const { data, loading, error } = useApi(() => api.sentiment.get('BTC'))
+  const sentimentData = { overall: data ? Math.round((data.score + 1) * 50) : 0,
+    positive: 0, neutral: 0, negative: 0, trend: data?.label ?? 'Unavailable', aiConfidence: data ? Math.round(data.confidence * 100) : 0 }
+  const newsItems: { id: string; title: string; summary: string; source: string; time: string; sentiment: keyof typeof sentimentBadge }[] = []
+  const socialPosts: { id: string; author: string; handle: string; content: string; likes: number; time: string; sentiment: keyof typeof sentimentBadge }[] = []
   return (
     <div className="space-y-6">
       <div>
@@ -60,49 +66,26 @@ export function SentimentPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <SentimentGauge value={sentimentData.overall} label="Overall Score" />
-            <div className="space-y-3 mt-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="flex items-center gap-1 text-success"><ThumbsUp className="h-3 w-3" /> Positive</span>
-                  <span>{sentimentData.positive}%</span>
-                </div>
-                <Progress value={sentimentData.positive} indicatorClassName="bg-success" />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Neutral</span>
-                  <span>{sentimentData.neutral}%</span>
-                </div>
-                <Progress value={sentimentData.neutral} indicatorClassName="bg-muted-foreground" />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="flex items-center gap-1 text-destructive"><ThumbsDown className="h-3 w-3" /> Negative</span>
-                  <span>{sentimentData.negative}%</span>
-                </div>
-                <Progress value={sentimentData.negative} indicatorClassName="bg-destructive" />
-              </div>
-            </div>
+            {data ? <SentimentGauge value={sentimentData.overall} label={data.label} /> :
+              <p role={error ? 'alert' : undefined} className="text-sm text-muted-foreground py-8">{loading ? 'Loading sentiment…' : error || 'No sentiment available'}</p>}
           </CardContent>
         </Card>
 
         <Card className="md:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-base">AI Confidence</CardTitle>
-            <Badge variant="success">{sentimentData.trend.toUpperCase()}</Badge>
+            <Badge variant="secondary">{sentimentData.trend.toUpperCase()}</Badge>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-6">
               <div className="flex-1">
                 <div className="flex justify-between mb-2">
                   <span className="text-sm text-muted-foreground">Model Confidence</span>
-                  <span className="text-2xl font-bold text-primary">{sentimentData.aiConfidence}%</span>
+                  <span className="text-2xl font-bold text-primary">{data ? `${sentimentData.aiConfidence}%` : '—'}</span>
                 </div>
-                <Progress value={sentimentData.aiConfidence} className="h-3" />
+                {data && <Progress value={sentimentData.aiConfidence} className="h-3" />}
                 <p className="text-xs text-muted-foreground mt-3">
-                  Based on analysis of 2,847 news articles and 15,230 social posts in the last 24 hours.
-                  Model v3.2 trained on 5 years of market correlation data.
+                  Sentiment appears when a configured provider supplies a result.
                 </p>
               </div>
             </div>
@@ -119,6 +102,7 @@ export function SentimentPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">News feed is not configured.</p>
             {newsItems.map((item, i) => (
               <motion.div
                 key={item.id}
@@ -153,6 +137,7 @@ export function SentimentPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">Social feed is not configured.</p>
             {socialPosts.map((post, i) => (
               <motion.div
                 key={post.id}

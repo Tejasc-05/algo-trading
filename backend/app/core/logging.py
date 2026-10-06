@@ -41,6 +41,9 @@ def configure_logging(debug: bool = False) -> None:
     # Quiet noisy third-party loggers unless debugging.
     for noisy in ("uvicorn.access", "sqlalchemy.engine"):
         logging.getLogger(noisy).setLevel(logging.DEBUG if debug else logging.WARNING)
+    # Signed exchange GET requests include signatures in query strings.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

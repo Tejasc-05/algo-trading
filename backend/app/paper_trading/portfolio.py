@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from math import isfinite
+from app.core.exceptions import AppError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -50,6 +52,12 @@ async def apply_fill_to_portfolio(
     fee = float(fill.get("fee") or 0.0)
     side_val = side.lower()
     pnl = 0.0
+    if side_val not in {"buy", "sell"} or not all(isfinite(x) for x in (qty, price, fee)) or qty <= 0 or price <= 0 or fee < 0:
+        raise AppError("INVALID_FILL", "Fill values are invalid", 422)
+    if side_val == "buy" and price * qty + fee > float(account.balance):
+        raise AppError("INSUFFICIENT_BALANCE", "Insufficient paper balance", 409)
+    if side_val == "sell" and (position is None or qty > float(position.quantity)):
+        raise AppError("INSUFFICIENT_POSITION", "Cannot sell more than the open spot position", 409)
 
     if side_val == "buy":
         cost = price * qty + fee
@@ -60,8 +68,9 @@ async def apply_fill_to_portfolio(
                 symbol=symbol,
                 side=PositionSide.LONG,
                 quantity=qty,
-                average_entry_price=price,
+                average_entry_price=(price * qty + fee) / qty,
                 is_open=True,
+                last_mark_price=price,
                 opened_at=datetime.now(timezone.utc),
             )
             db.add(position)
@@ -69,8 +78,9 @@ async def apply_fill_to_portfolio(
             existing = float(position.quantity)
             avg = float(position.average_entry_price)
             new_qty = existing + qty
-            position.average_entry_price = ((avg * existing) + (price * qty)) / new_qty if new_qty else price
+            position.average_entry_price = ((avg * existing) + (price * qty) + fee) / new_qty if new_qty else price
             position.quantity = new_qty
+            position.last_mark_price = price
         fill["pnl"] = None
     else:
         proceeds = price * qty - fee

@@ -2,20 +2,23 @@
 endpoints. Real implementation lands in Phase 5 (exchanges) and Phase 7
 (paper trading engine) — routes currently return 501."""
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from app.database.models.enums import OrderSide, OrderStatus, PositionSide
 
 
 class PaperTradingStartRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     strategy_id: str
-    symbol: str
-    timeframe: str = "1h"
+    symbol: str = Field(pattern=r"^[A-Z0-9]{1,12}/[A-Z0-9]{1,12}$")
+    timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "1h"
     starting_balance: float = Field(default=10_000, gt=0)
 
 
 class PaperAccountOut(BaseModel):
+    equity: float | None = None
     id: str
     strategy_id: str | None
     currency: str
@@ -40,11 +43,11 @@ class PaperTradeOut(BaseModel):
 
 
 class ExchangeConnectRequest(BaseModel):
-    exchange_name: str = Field(description="CCXT exchange id, e.g. 'binance'")
-    label: str | None = None
-    api_key: str
-    api_secret: str
-    passphrase: str | None = None
+    exchange_name: str = Field(min_length=1, max_length=64, description="CCXT exchange id, e.g. 'binance'")
+    label: str | None = Field(default=None, max_length=255)
+    api_key: str = Field(min_length=1, max_length=4096)
+    api_secret: str = Field(min_length=1, max_length=4096)
+    passphrase: str | None = Field(default=None, max_length=4096)
     is_testnet: bool = True
 
 
@@ -71,6 +74,9 @@ class PositionOut(BaseModel):
 
 
 class PortfolioOut(BaseModel):
+    weekly_pnl: float = 0
+    weekly_pnl_percent: float = 0
+    total_return_pct: float = 0
     total_value: float
     cash_balance: float
     daily_pnl: float

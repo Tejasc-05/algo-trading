@@ -27,10 +27,10 @@ class Backtest(Base, TimestampMixin):
     start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     starting_capital: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
-    fees: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0)
-    slippage: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0)
+    fees: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0, server_default="0")
+    slippage: Mapped[float] = mapped_column(Numeric(10, 6), nullable=False, default=0, server_default="0")
     status: Mapped[BacktestStatus] = mapped_column(
-        Enum(BacktestStatus, native_enum=False), nullable=False, default=BacktestStatus.PENDING, index=True
+        Enum(BacktestStatus, native_enum=False), nullable=False, default=BacktestStatus.PENDING, server_default="PENDING", index=True
     )
 
     result: Mapped["BacktestResult | None"] = relationship(back_populates="backtest", cascade="all, delete-orphan")

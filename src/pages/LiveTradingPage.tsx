@@ -7,31 +7,44 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { activeBots, exchangeConnections, liveTradeFeed } from '@/data/mockData'
+import { useApi } from '@/hooks/useApi'
+import { api } from '@/lib/api'
+import { useState } from 'react'
 import { formatCurrency } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
+import { FuturesDemoPanel } from '@/features/strategy-builder/FuturesDemoPanel'
 
 export function LiveTradingPage() {
+  const connections = useApi(() => api.exchanges.list())
+  const exchangeConnections = (connections.data ?? []).map((e: any) => ({
+    id: e.id, name: e.label || e.exchange_name, logo: e.exchange_name[0].toUpperCase(),
+    connected: e.is_active, status: e.is_testnet ? 'Sandbox credentials saved' : 'Credentials saved' }))
+  const activeBots: { id: string; name: string; strategy: string; status: string; trades: number; pnl: number }[] = []
+  const liveTradeFeed: { id: string; pair: string; bot: string; action: string; price: number; time: string }[] = []
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [connecting, setConnecting] = useState(false)
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">Live Trading</h2>
           <p className="text-sm text-muted-foreground">
-            Deploy strategies to connected exchanges with real capital
+            Save exchange connections. Real order execution is not available yet.
           </p>
         </div>
-        <Button variant="gradient">
+        <Button variant="gradient" disabled title="Live execution is disabled">
           <Zap className="h-4 w-4" />
           Deploy New Bot
         </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard title="Active Strategies" value="3" change="1 paused" changeType="neutral" icon={<Bot className="h-5 w-5" />} />
-        <StatCard title="Connected Exchanges" value="3" change="1 disconnected" changeType="neutral" icon={<Link2 className="h-5 w-5" />} delay={0.1} />
-        <StatCard title="Live P&L Today" value={formatCurrency(1842.5)} change="+2.4%" changeType="positive" icon={<Zap className="h-5 w-5" />} delay={0.2} />
+        <StatCard title="Active Strategies" value="0" change="Live execution disabled" changeType="neutral" icon={<Bot className="h-5 w-5" />} />
+        <StatCard title="Connected Exchanges" value={String(exchangeConnections.length)} change="Saved connections" changeType="neutral" icon={<Link2 className="h-5 w-5" />} delay={0.1} />
+        <StatCard title="Live P&L Today" value="—" change="Live execution disabled" changeType="positive" icon={<Zap className="h-5 w-5" />} delay={0.2} />
       </div>
+
+      <FuturesDemoPanel />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
@@ -39,6 +52,7 @@ export function LiveTradingPage() {
             <CardTitle className="text-base">Active Strategies</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">No live bots. Real execution is disabled.</p>
             {activeBots.filter((b) => b.status !== 'stopped').map((bot) => (
               <div key={bot.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
                 <div className="flex items-center gap-3">
@@ -76,6 +90,7 @@ export function LiveTradingPage() {
             <CardTitle className="text-base">Live Trade Feed</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 max-h-[340px] overflow-y-auto">
+            <p className="text-sm text-muted-foreground">No live trades.</p>
             {liveTradeFeed.map((trade, i) => (
               <motion.div
                 key={trade.id}
@@ -107,6 +122,8 @@ export function LiveTradingPage() {
             <CardTitle className="text-base">Exchange Connections</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {connections.error && <p role="alert" className="text-destructive text-sm">{connections.error}</p>}
+            {exchangeConnections.length === 0 && <p className="text-sm text-muted-foreground">No exchange connections saved.</p>}
             {exchangeConnections.map((exchange) => (
               <div key={exchange.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/30">
                 <div className="flex items-center gap-3">
@@ -125,7 +142,7 @@ export function LiveTradingPage() {
                     </div>
                   </div>
                 </div>
-                <Switch checked={exchange.connected} />
+                <Switch checked={exchange.connected} disabled />
               </div>
             ))}
           </CardContent>
@@ -139,22 +156,32 @@ export function LiveTradingPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+            <form className="space-y-4" onSubmit={async (e) => {
+              e.preventDefault(); const form = e.currentTarget; const fields = new FormData(form)
+              setConnecting(true); setConnectError(null)
+              try {
+                await api.exchanges.connect({ exchange_name: String(fields.get('exchange_name')),
+                  api_key: String(fields.get('api_key')), api_secret: String(fields.get('api_secret')), is_testnet: true })
+                form.reset(); connections.refetch()
+              } catch (error) { setConnectError(error instanceof Error ? error.message : 'Unable to save connection') }
+              finally { setConnecting(false) }
+            }}>
               <div className="space-y-2">
                 <Label>Exchange</Label>
-                <Input placeholder="Select exchange..." />
+                <Input name="exchange_name" required placeholder="CCXT exchange id, e.g. binance" />
               </div>
               <div className="space-y-2">
                 <Label>API Key</Label>
-                <Input type="password" placeholder="Enter API key" />
+                <Input name="api_key" required type="password" placeholder="Enter API key" />
               </div>
               <div className="space-y-2">
                 <Label>API Secret</Label>
-                <Input type="password" placeholder="Enter API secret" />
+                <Input name="api_secret" required type="password" placeholder="Enter API secret" />
               </div>
-              <Button variant="gradient" className="w-full">Connect Exchange</Button>
+              <Button variant="gradient" className="w-full" disabled={connecting}>{connecting ? "Saving…" : "Save Sandbox Connection"}</Button>
+              {connectError && <p role="alert" className="text-destructive text-sm">{connectError}</p>}
               <p className="text-[11px] text-muted-foreground text-center">
-                API keys are encrypted with AES-256 and never stored in plain text.
+                API credentials are encrypted at rest. Saving credentials does not enable live trading.
               </p>
             </form>
           </CardContent>

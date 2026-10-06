@@ -20,7 +20,8 @@ async def cache_set_json(client: redis.Redis, key: str, value: Any, ttl_seconds:
 async def increment_with_expiry(client: redis.Redis, key: str, ttl_seconds: int) -> int:
     """Fixed-window counter: increments `key` and sets its TTL only on the
     first increment of the window, returning the new count."""
-    count = await client.incr(key)
-    if count == 1:
-        await client.expire(key, ttl_seconds)
+    async with client.pipeline(transaction=True) as pipeline:
+        pipeline.incr(key)
+        pipeline.expire(key, ttl_seconds, nx=True)
+        count, _ = await pipeline.execute()
     return count

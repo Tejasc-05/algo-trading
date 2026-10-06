@@ -59,7 +59,8 @@ def ema(close: pd.Series | np.ndarray, period: int) -> pd.Series:
 
 def macd(close: pd.Series | np.ndarray, fast: int, slow: int, signal: int) -> pd.DataFrame:
     macd_line = ema(close, fast) - ema(close, slow)
-    signal_line = ema(macd_line.fillna(0), signal)
+    # Seed the signal EMA with actual MACD observations, excluding warm-up.
+    signal_line = ema(macd_line.dropna(), signal).reindex(macd_line.index)
     histogram = macd_line - signal_line
     return pd.DataFrame({"macd": macd_line, "signal": signal_line, "histogram": histogram})
 

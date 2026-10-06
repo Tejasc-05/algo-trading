@@ -15,6 +15,8 @@ import {
 import { NavLink } from 'react-router-dom'
 import { cn } from '@/utils/cn'
 import { useAppStore } from '@/store/useAppStore'
+import { useApi } from '@/hooks/useApi'
+import { api } from '@/lib/api'
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -28,6 +30,7 @@ const navItems = [
 
 export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useAppStore()
+  const usage = useApi(() => api.paperTrading.getUsage())
 
   return (
     <motion.aside
@@ -73,12 +76,13 @@ export function Sidebar() {
           <div className="glass rounded-lg p-3 mb-3">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="h-4 w-4 text-success" />
-              <span className="text-xs font-medium">Pro Plan</span>
+              <span className="text-xs font-medium">Paper Trading</span>
             </div>
-            <p className="text-[11px] text-muted-foreground">4/10 active bots used</p>
-            <div className="mt-2 h-1.5 rounded-full bg-secondary overflow-hidden">
-              <div className="h-full w-[40%] rounded-full bg-gradient-to-r from-cyan-500 to-purple-500" />
-            </div>
+            <p className="text-[11px] text-muted-foreground" aria-live="polite">
+              {usage.error ? 'Active bots unavailable' : usage.data
+                ? `${usage.data.active_bots} active ${usage.data.active_bots === 1 ? 'bot' : 'bots'}`
+                : 'Loading active bots…'}
+            </p>
           </div>
         )}
         <button

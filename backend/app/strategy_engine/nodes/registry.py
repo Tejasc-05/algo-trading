@@ -1,7 +1,7 @@
 """Central lookup of every known node type. Adding a new block to the
 platform means adding one NodeDefinition subclass and one line here — nothing
 in parser.py or validator.py needs to change."""
-from app.strategy_engine.nodes.action_nodes import BuyNode, HoldNode, SellNode
+from app.strategy_engine.nodes.action_nodes import BuyNode, HoldNode, SellNode, OpenLongNode, OpenShortNode, ClosePositionNode
 from app.strategy_engine.nodes.base import NodeDefinition
 from app.strategy_engine.nodes.condition_nodes import ConditionNode
 from app.strategy_engine.nodes.data_nodes import PriceNode, VolumeNode
@@ -36,6 +36,9 @@ NODE_REGISTRY: dict[str, type[NodeDefinition]] = {
         BuyNode,
         SellNode,
         HoldNode,
+        OpenLongNode,
+        OpenShortNode,
+        ClosePositionNode,
         StopLossNode,
         TakeProfitNode,
     )

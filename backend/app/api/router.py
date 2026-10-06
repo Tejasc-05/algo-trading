@@ -13,6 +13,7 @@ from app.api.routes import (
     sentiment,
     strategies,
     users,
+    futures_demo,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -25,3 +26,4 @@ api_router.include_router(paper_trading.router)
 api_router.include_router(exchanges.router)
 api_router.include_router(portfolio.router)
 api_router.include_router(sentiment.router)
+api_router.include_router(futures_demo.router)

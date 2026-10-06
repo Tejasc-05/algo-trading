@@ -65,7 +65,10 @@ def parse_graph(graph: StrategyGraph) -> ParseResult:
         parsed.outgoing.setdefault(node.id, [])
         parsed.incoming.setdefault(node.id, [])
 
-    for edge in graph.edges:
+    # Named crossover ports keep operands stable when edges are reordered.
+    # Legacy graphs without ports retain their existing edge order.
+    edges = sorted(graph.edges, key=lambda edge: {"left": 0, "right": 1}.get(edge.target_handle, 0))
+    for edge in edges:
         if edge.source == edge.target:
             issues.append(
                 ValidationIssue(

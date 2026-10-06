@@ -38,11 +38,16 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('/auth/')) {
+      localStorage.removeItem('access_token'); localStorage.removeItem('user')
+      window.location.assign('/login')
+    }
     let message = 'Request failed';
     let code = 'REQUEST_FAILED';
     try {
       const err = await response.json();
-      message = err.error?.message || message;
+      message = err.error?.message || (typeof err.detail === 'string' ? err.detail :
+        Array.isArray(err.detail) ? err.detail.map((issue: { msg: string }) => issue.msg).join('; ') : message);
       code = err.error?.code || code;
     } catch {
       // ignore parse errors
@@ -58,13 +63,26 @@ async function request<T>(
 }
 
 export const api = {
+  futuresDemo: {
+    verify: (id: string) => request<any>(`/futures-demo/connections/${id}/verify`, { method: 'POST' }),
+    list: () => request<any[]>('/futures-demo/sessions'),
+    activate: (payload: { connection_id: string; strategy_id: string; symbol: string; timeframe: string; max_notional: number; loss_limit: number; confirm_demo: true }) =>
+      request<any>('/futures-demo/sessions', { method: 'POST', body: JSON.stringify(payload) }),
+    tick: (id: string) => request<any>(`/futures-demo/sessions/${id}/tick`, { method: 'POST' }),
+    stop: (id: string) => request<any>(`/futures-demo/sessions/${id}/stop`, { method: 'POST' }),
+    resume: (id: string) => request<any>(`/futures-demo/sessions/${id}/resume`, { method: 'POST' }),
+    orders: (id: string) => request<any[]>(`/futures-demo/sessions/${id}/orders`),
+  },
   // Auth
   auth: {
-    register: (email: string, password: string) =>
-      request<{ access_token: string; user: any }>('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      }),
+    register: (email: string, password: string, fullName?: string) =>
+      request<{ access_token: string; user: any }>(
+        '/auth/register',
+        {
+          method: 'POST',
+          body: JSON.stringify({ email, password, full_name: fullName }),
+        }
+      ),
     login: (email: string, password: string) =>
       request<{ access_token: string; user: any }>('/auth/login', {
         method: 'POST',
@@ -75,6 +93,9 @@ export const api = {
 
   // Strategies
   strategies: {
+    validateGraph: (graph: unknown) => request<any>('/strategies/validate-graph', {
+      method: 'POST', body: JSON.stringify(graph),
+    }),
     list: () => request<any[]>('/strategies'),
     get: (id: string) => request<any>(`/strategies/${id}`),
     create: (payload: { name: string; description?: string; graph: any }) =>
@@ -129,8 +150,10 @@ export const api = {
 
   // Paper Trading
   paperTrading: {
+    getUsage: () => request<{ active_bots: number }>('/paper-trading/usage'),
     start: (payload: { strategy_id: string; symbol: string; timeframe?: string; starting_balance?: number }) =>
       request<any>('/paper-trading/start', { method: 'POST', body: JSON.stringify(payload) }),
+    stop: (paper_account_id: string) => request<any>('/paper-trading/stop', { method: 'POST', body: JSON.stringify({ paper_account_id }) }),
     getAccount: () => request<any>('/paper-trading/account'),
     getTrades: () => request<any[]>('/paper-trading/trades'),
     createOrder: (payload: { paper_account_id: string; symbol: string; side: string; order_type: string; quantity: number; price?: number }) =>

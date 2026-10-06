@@ -12,7 +12,7 @@ def _align(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray | float) 
         return a, b
     b = np.asarray(right, dtype=float)
     n = min(len(a), len(b))
-    return a[-n:], b[-n:]
+    return (a[-n:], b[-n:]) if n else (a[:0], b[:0])
 
 
 def compare(operator: str, left: pd.Series | np.ndarray, right: pd.Series | float) -> pd.Series:
@@ -31,7 +31,7 @@ def compare(operator: str, left: pd.Series | np.ndarray, right: pd.Series | floa
         out = ~np.isclose(a, b)
     else:
         out = np.zeros(len(a), dtype=bool)
-    return pd.Series(out)
+    return pd.Series(out, dtype="boolean").mask(~(np.isfinite(a) & np.isfinite(b)))
 
 
 def crosses_above(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray) -> pd.Series:
@@ -50,33 +50,33 @@ def crosses_below(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray) -
     return pd.Series(out)
 
 
-def _bool_arrays(*operands: pd.Series | np.ndarray) -> list[np.ndarray]:
-    arrays = [np.asarray(op).astype(bool) for op in operands if op is not None]
+def _bool_arrays(*operands):
+    arrays = [pd.Series(op, dtype="boolean") for op in operands]
     if not arrays:
         return []
     n = min(len(a) for a in arrays)
-    return [a[-n:] for a in arrays]
+    return [a.iloc[-n:].reset_index(drop=True) if n else a.iloc[:0] for a in arrays]
 
 
-def logical_and(*operands: pd.Series | np.ndarray) -> pd.Series:
+def logical_and(*operands):
     arrays = _bool_arrays(*operands)
     if not arrays:
-        return pd.Series(np.array([], dtype=bool))
+        return pd.Series([], dtype="boolean")
     result = arrays[0]
     for arr in arrays[1:]:
         result = result & arr
-    return pd.Series(result)
+    return result
 
 
-def logical_or(*operands: pd.Series | np.ndarray) -> pd.Series:
+def logical_or(*operands):
     arrays = _bool_arrays(*operands)
     if not arrays:
-        return pd.Series(np.array([], dtype=bool))
+        return pd.Series([], dtype="boolean")
     result = arrays[0]
     for arr in arrays[1:]:
         result = result | arr
-    return pd.Series(result)
+    return result
 
 
-def logical_not(operand: pd.Series | np.ndarray) -> pd.Series:
-    return pd.Series(~np.asarray(operand).astype(bool))
+def logical_not(operand):
+    return ~pd.Series(operand, dtype="boolean")

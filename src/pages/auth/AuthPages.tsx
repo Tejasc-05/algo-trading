@@ -3,6 +3,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
+import React, { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { api } from '@/lib/api'
+import { useAppStore } from '@/store/useAppStore'
+import { useStrategyStore } from '@/store/useStrategyStore'
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -14,7 +19,7 @@ function GitHubIcon({ className }: { className?: string }) {
 
 function SocialButton({ children, label }: { children: React.ReactNode; label: string }) {
   return (
-    <Button variant="outline" className="w-full" type="button">
+    <Button variant="outline" className="w-full" type="button" disabled title="Social login is not configured">
       {children}
       {label}
     </Button>
@@ -22,6 +27,9 @@ function SocialButton({ children, label }: { children: React.ReactNode; label: s
 }
 
 export function LoginPage() {
+  const navigate = useNavigate()
+  const setUser = useAppStore((s) => s.setUser)
+
   return (
     <div className="space-y-6">
       <div className="text-center lg:text-left">
@@ -45,7 +53,22 @@ export function LoginPage() {
         </span>
       </div>
 
-      <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
+      <form className="space-y-4" onSubmit={async (e) => {
+        e.preventDefault();
+        const email = (document.getElementById('email') as HTMLInputElement).value;
+        const password = (document.getElementById('password') as HTMLInputElement).value;
+        try {
+          const res = await api.auth.login(email, password);
+          useStrategyStore.getState().reset();
+          localStorage.setItem('access_token', res.access_token);
+          localStorage.setItem('user', JSON.stringify(res.user));
+          setUser({ name: res.user.full_name || res.user.name || '', email: res.user.email });
+          navigate('/dashboard');
+        } catch (error) {
+          console.error('Login error:', error);
+          alert('Login failed. Please check your credentials.');
+        }
+      }}>
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input id="email" type="email" placeholder="you@example.com" />
@@ -59,8 +82,8 @@ export function LoginPage() {
           </div>
           <Input id="password" type="password" placeholder="••••••••" />
         </div>
-        <Button variant="gradient" className="w-full" asChild>
-          <Link to="/dashboard">Sign In</Link>
+        <Button variant="gradient" className="w-full" type="submit">
+          Sign In
         </Button>
       </form>
 
@@ -72,7 +95,29 @@ export function LoginPage() {
   )
 }
 
+
 export function SignupPage() {
+  const navigate = useNavigate()
+  const setUser = useAppStore((s) => s.setUser)
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const res = await api.auth.register(email, password, fullName)
+      useStrategyStore.getState().reset()
+      localStorage.setItem('access_token', res.access_token)
+      localStorage.setItem('user', JSON.stringify(res.user))
+      setUser({ name: res.user.full_name || res.user.name || '', email: res.user.email })
+      navigate('/dashboard')
+    } catch (error) {
+      console.error('Signup error:', error)
+      alert('Signup failed. Please try again.')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="text-center lg:text-left">
@@ -96,23 +141,27 @@ export function SignupPage() {
         </span>
       </div>
 
-      <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-        <div className="space-y-2">
-          <Label htmlFor="name">Full Name</Label>
-          <Input id="name" placeholder="Alex Chen" />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" placeholder="you@example.com" />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" placeholder="Min. 8 characters" />
-        </div>
-        <Button variant="gradient" className="w-full" asChild>
-          <Link to="/dashboard">Create Account</Link>
-        </Button>
-      </form>
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="space-y-2">
+            <Label htmlFor="name">Full Name</Label>
+            <Input id="name" placeholder="Alex Chen" value={fullName} onChange={e => setFullName(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input id="password" type="password" placeholder="Min. 8 characters" value={password} onChange={e => setPassword(e.target.value)} />
+          </div>
+          <Button variant="gradient" className="w-full" type="submit">
+            Create Account
+          </Button>
+        </form>
+
+
+
+
 
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{' '}
@@ -137,7 +186,7 @@ export function ForgotPasswordPage() {
           <Label htmlFor="email">Email</Label>
           <Input id="email" type="email" placeholder="you@example.com" />
         </div>
-        <Button variant="gradient" className="w-full">Send Reset Link</Button>
+        <Button variant="gradient" className="w-full" disabled title="Password reset is not configured">Send Reset Link</Button>
       </form>
 
       <p className="text-center text-sm text-muted-foreground">

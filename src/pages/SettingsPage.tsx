@@ -44,7 +44,7 @@ export function SettingsPage() {
                   <Input defaultValue={user.email} type="email" />
                 </div>
               </div>
-              <Button variant="gradient">Save Changes</Button>
+              <Button variant="gradient" disabled title="Profile editing is not available yet">Save Changes</Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -66,7 +66,7 @@ export function SettingsPage() {
                     <p className="text-sm font-medium">{item.label}</p>
                     <p className="text-xs text-muted-foreground">{item.desc}</p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch disabled />
                 </div>
               ))}
             </CardContent>
@@ -91,7 +91,7 @@ export function SettingsPage() {
                   <Label>New Password</Label>
                   <Input type="password" />
                 </div>
-                <Button variant="outline">Update Password</Button>
+                <Button variant="outline" disabled>Update Password</Button>
               </div>
               <Separator />
               <div className="flex items-center justify-between">
@@ -99,7 +99,7 @@ export function SettingsPage() {
                   <p className="text-sm font-medium">Two-Factor Authentication</p>
                   <p className="text-xs text-muted-foreground">Add an extra layer of security</p>
                 </div>
-                <Button variant="outline" size="sm">Enable 2FA</Button>
+                <Button variant="outline" size="sm" disabled>Enable 2FA</Button>
               </div>
             </CardContent>
           </Card>
@@ -114,15 +114,15 @@ export function SettingsPage() {
               <div className="flex items-center justify-between p-4 rounded-lg bg-primary/5 border border-primary/20">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-semibold">Pro Plan</p>
+                    <p className="font-semibold">{user.plan.toUpperCase()} Plan</p>
                     <Badge>Current</Badge>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1">$49/month · 10 bots · Live trading</p>
+                  <p className="text-sm text-muted-foreground mt-1">Paper trading account</p>
                 </div>
-                <Button variant="outline" size="sm">Upgrade</Button>
+                <Button variant="outline" size="sm" disabled>Upgrade</Button>
               </div>
               <Separator />
-              <p className="text-sm text-muted-foreground">Next billing date: July 28, 2026</p>
+              <p className="text-sm text-muted-foreground">No billing service is configured.</p>
             </CardContent>
           </Card>
         </TabsContent>

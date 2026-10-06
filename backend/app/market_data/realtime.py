@@ -38,15 +38,15 @@ async def stream_realtime_prices(symbols: list[str]) -> None:
                 from app.exchanges.ccxt_service import CCXTExchange
 
                 # Try Binance first
-                exchange = CCXTExchange(exchange_id="binance", testnet=True)
+                exchange = CCXTExchange(exchange_id="binance", testnet=False)
                 ticker = await exchange.fetch_ticker(symbol)
 
                 payload = {
                     "symbol": symbol,
-                    "price": float(ticker.get("last", 0)),
-                    "bid": float(ticker.get("bid", 0)),
-                    "ask": float(ticker.get("ask", 0)),
-                    "volume": float(ticker.get("baseVolume", 0)),
+                    "price": ticker.last_price,
+                    "bid": ticker.bid,
+                    "ask": ticker.ask,
+                    "volume": ticker.volume_24h,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
@@ -88,22 +88,20 @@ async def stream_candles(
         try:
             from app.exchanges.ccxt_service import CCXTExchange
 
-            exchange = CCXTExchange(exchange_id="binance", testnet=True)
-            candles = await exchange._exchange.fetch_ohlcv(
-                symbol=symbol, timeframe=timeframe, limit=1
-            )
+            exchange = CCXTExchange(exchange_id="binance", testnet=False)
+            candles = await exchange.fetch_ohlcv(symbol=symbol, timeframe=timeframe, since=None, limit=1)
 
             if candles:
                 candle = candles[-1]
                 payload = {
                     "symbol": symbol,
                     "timeframe": timeframe,
-                    "timestamp": candle[0],
-                    "open": candle[1],
-                    "high": candle[2],
-                    "low": candle[3],
-                    "close": candle[4],
-                    "volume": candle[5],
+                    "timestamp": candle.timestamp,
+                    "open": candle.open,
+                    "high": candle.high,
+                    "low": candle.low,
+                    "close": candle.close,
+                    "volume": candle.volume,
                 }
                 await publish_event(f"candle:{symbol}:{timeframe}", payload)
 

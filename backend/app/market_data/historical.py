@@ -1,6 +1,8 @@
 """Historical OHLCV fetching + normalization into pandas DataFrames."""
 from __future__ import annotations
 
+import asyncio
+from app.core.exceptions import AppError
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -64,7 +66,11 @@ def normalize_ohlcv(df: pd.DataFrame | list) -> pd.DataFrame:
         else:
             out[col] = np.nan
 
-    out = out.dropna(subset=["close"]).sort_values("timestamp").reset_index(drop=True)
+    out = out.dropna(subset=["timestamp", "open", "high", "low", "close", "volume"])
+    numeric = out[["open", "high", "low", "close", "volume"]]
+    if not np.isfinite(numeric.to_numpy()).all() or (out[["open", "high", "low", "close"]] <= 0).any().any() or (out["volume"] < 0).any():
+        raise ValueError("OHLCV values must be finite with positive prices and nonnegative volume")
+    out = out.sort_values("timestamp").drop_duplicates("timestamp", keep="last").reset_index(drop=True)
     return out[["timestamp", "open", "high", "low", "close", "volume"]]
 
 
@@ -143,7 +149,7 @@ async def fetch_historical_ohlcv(
             all_ohlcv: list = []
             current_since = since_ms
             while current_since < end_ms:
-                batch = exchange._exchange.fetch_ohlcv(
+                batch = await asyncio.to_thread(exchange._exchange.fetch_ohlcv,
                     symbol=symbol,
                     timeframe=timeframe,
                     since=current_since,
@@ -151,7 +157,11 @@ async def fetch_historical_ohlcv(
                 )
                 if not batch:
                     break
+                if batch[-1][0] < current_since:
+                    break
                 all_ohlcv.extend(batch)
+                if len(all_ohlcv) > 10000:
+                    raise AppError("HISTORY_TOO_LARGE", "Maximum historical range is 10000 candles", 422)
                 current_since = batch[-1][0] + 1
                 if batch[-1][0] >= end_ms:
                     break
@@ -167,15 +177,14 @@ async def fetch_historical_ohlcv(
             logger.warning("Failed to fetch historical OHLCV from %s: %s", exchange_id, exc)
             continue
 
-    logger.warning("Using synthetic OHLCV for %s %s", symbol, timeframe)
-    return generate_synthetic_ohlcv(start=start_utc, end=end_utc, timeframe=timeframe)
+    raise AppError("MARKET_DATA_UNAVAILABLE", "Historical exchange data is unavailable", 503)
 
 
 async def fetch_latest_ohlcv(symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
     for exchange_id in EXCHANGE_PRIORITY:
         try:
             exchange = _public_exchange(exchange_id)
-            ohlcv = exchange._exchange.fetch_ohlcv(symbol=symbol, timeframe=timeframe, limit=limit)
+            ohlcv = await asyncio.to_thread(exchange._exchange.fetch_ohlcv, symbol=symbol, timeframe=timeframe, limit=limit)
             if not ohlcv:
                 continue
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
@@ -184,5 +193,4 @@ async def fetch_latest_ohlcv(symbol: str, timeframe: str, limit: int = 100) -> O
             logger.warning("Failed to fetch latest OHLCV from %s: %s", exchange_id, exc)
             continue
 
-    logger.warning("Using synthetic latest OHLCV for %s", symbol)
-    return generate_synthetic_ohlcv(timeframe=timeframe, limit=limit)
+    raise AppError("MARKET_DATA_UNAVAILABLE", "Exchange candle data is unavailable", 503)

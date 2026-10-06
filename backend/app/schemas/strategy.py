@@ -19,7 +19,7 @@ class ReactFlowPosition(BaseModel):
 
 
 class StrategyNodeData(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, allow_inf_nan=False)
 
     label: str
     node_type: str = Field(alias="nodeType")
@@ -39,6 +39,9 @@ class ReactFlowNode(BaseModel):
 
 
 class ReactFlowEdge(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, allow_inf_nan=False)
+    source_handle: str | None = Field(default=None, alias="sourceHandle")
+    target_handle: str | None = Field(default=None, alias="targetHandle")
     id: str | None = None
     source: str
     target: str
@@ -46,8 +49,8 @@ class ReactFlowEdge(BaseModel):
 
 
 class StrategyGraph(BaseModel):
-    nodes: list[ReactFlowNode] = Field(default_factory=list)
-    edges: list[ReactFlowEdge] = Field(default_factory=list)
+    nodes: list[ReactFlowNode] = Field(default_factory=list, max_length=256)
+    edges: list[ReactFlowEdge] = Field(default_factory=list, max_length=1024)
 
 
 # --- Requests --------------------------------------------------------------

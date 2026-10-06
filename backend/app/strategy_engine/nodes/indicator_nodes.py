@@ -6,7 +6,7 @@ from app.strategy_engine.nodes.base import NodeCategory, NodeDefinition
 
 
 class RSIParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     period: int = Field(default=14, gt=1, le=200)
     oversold: float | None = Field(default=None, ge=0, le=100)
@@ -29,7 +29,7 @@ class RSINode(NodeDefinition):
 
 
 class MovingAverageParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     period: int = Field(default=50, gt=1, le=500)
     type: Literal["SMA", "EMA"] = "SMA"
@@ -48,7 +48,7 @@ class MovingAverageNode(NodeDefinition):
 
 
 class PeriodParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     period: int = Field(default=20, gt=1, le=500)
 
@@ -75,11 +75,12 @@ class EMANode(NodeDefinition):
 
 
 class MACDParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     fast: int = Field(default=12, gt=0, le=200)
     slow: int = Field(default=26, gt=0, le=500)
     signal: int = Field(default=9, gt=0, le=200)
+    output: Literal["macd", "signal", "histogram"] = "macd"
 
     @model_validator(mode="after")
     def check_fast_lt_slow(self):
@@ -98,7 +99,7 @@ class MACDNode(NodeDefinition):
 
 
 class BollingerBandsParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     period: int = Field(default=20, gt=1, le=500)
     std_dev: float = Field(default=2.0, gt=0, le=10)

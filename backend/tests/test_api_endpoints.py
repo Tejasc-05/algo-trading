@@ -157,11 +157,8 @@ async def test_portfolio_endpoints(client: AsyncClient, auth_headers: dict[str, 
 @pytest.mark.asyncio
 async def test_sentiment_endpoints(client: AsyncClient, auth_headers: dict[str, str]):
     res = await client.get("/api/sentiment/BTC", headers=auth_headers)
-    assert res.status_code == 200
-    data = res.json()
-    assert data["symbol"] == "BTC"
-    assert -1.0 <= data["score"] <= 1.0
-    assert data["label"] in ("positive", "negative", "neutral")
+    assert res.status_code == 503
+    assert res.json()["error"]["code"] == "SENTIMENT_UNAVAILABLE"
 
 
 @pytest.mark.asyncio

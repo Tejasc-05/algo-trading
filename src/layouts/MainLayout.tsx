@@ -3,6 +3,7 @@ import { MobileNav, Sidebar } from '@/components/layout/Sidebar'
 import { TopNavbar } from '@/components/layout/TopNavbar'
 import { useAppStore } from '@/store/useAppStore'
 import { cn } from '@/utils/cn'
+import { useRealtime } from '@/hooks/useRealtime'
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -15,6 +16,7 @@ const pageTitles: Record<string, string> = {
 }
 
 export function MainLayout() {
+  useRealtime()
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const location = useLocation()
   const title = pageTitles[location.pathname]

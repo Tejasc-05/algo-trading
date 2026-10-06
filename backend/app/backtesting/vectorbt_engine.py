@@ -1,12 +1,13 @@
 """Primary vectorized-style backtesting engine."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
-from app.backtesting.simulator import simulate_strategy_on_ohlcv
+from app.backtesting.library_adapters import vectorbt_simulate
 from app.market_data.historical import fetch_historical_ohlcv
 
 
@@ -27,7 +28,7 @@ async def run_vectorbt_backtest(
     if df is None or df.empty:
         raise ValueError(f"No historical data available for {symbol} {timeframe}")
 
-    return simulate_strategy_on_ohlcv(
+    return await asyncio.to_thread(vectorbt_simulate,
         strategy_graph,
         df,
         symbol=symbol,

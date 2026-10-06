@@ -22,6 +22,9 @@ const iconMap: Record<string, React.ElementType> = {
   sell: ArrowDownCircle,
   stopLoss: ShieldAlert,
   takeProfit: Target,
+  openLong: ArrowUpCircle,
+  openShort: ArrowDownCircle,
+  closePosition: ShieldAlert,
 }
 
 const colorMap: Record<string, string> = {
@@ -34,6 +37,9 @@ const colorMap: Record<string, string> = {
   sell: 'text-red-400',
   stopLoss: 'text-orange-400',
   takeProfit: 'text-teal-400',
+  openLong: 'text-emerald-400',
+  openShort: 'text-red-400',
+  closePosition: 'text-amber-400',
 }
 
 interface NodePaletteProps {

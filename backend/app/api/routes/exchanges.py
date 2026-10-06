@@ -25,7 +25,8 @@ async def connect_exchange(
     settings = get_settings()
 
     # Validate exchange is supported by CCXT
-    supported = ["binance", "binanceus", "coinbase", "coinbasepro", "kraken", "bybit", "bitfinex", "huobi", "okx"]
+    import ccxt
+    supported = ccxt.exchanges
     if payload.exchange_name.lower() not in supported:
         raise AppError(
             code="UNSUPPORTED_EXCHANGE",
@@ -105,6 +106,18 @@ async def disconnect_exchange(
     if connection is None:
         raise AppError(code="NOT_FOUND", message="Exchange connection not found", status_code=404)
 
+    from app.database.models.futures import DemoSession
+    sessions = list((await db.execute(select(DemoSession).where(DemoSession.connection_id == connection.id))).scalars())
+    if any(session.status != 'stopped' for session in sessions):
+        raise AppError('DEMO_SESSION_ACTIVE', 'Stop and close the futures demo session before removing this connection.', 409)
+    if sessions:
+        # Retain the reference for the audit ledger, but erase credentials.
+        connection.is_active = False
+        connection.api_key_encrypted = encrypt_secret('')
+        connection.api_secret_encrypted = encrypt_secret('')
+        connection.passphrase_encrypted = None
+        await db.commit()
+        return
     await db.delete(connection)
     await db.commit()
 
@@ -147,6 +160,7 @@ async def test_connection(
             testnet=connection.is_testnet,
         )
         ticker = await exchange.fetch_ticker("BTC/USDT")
-        return {"success": True, "exchange": connection.exchange_name, "ticker": ticker}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": True, "exchange": connection.exchange_name, "ticker": ticker,
+            "market_data_reachable": True, "credentials_verified": False}
+    except Exception as exc:
+        raise AppError("EXCHANGE_UNAVAILABLE", "Exchange market-data check failed", 503) from exc

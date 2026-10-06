@@ -145,5 +145,6 @@ def test_risk_node_without_condition_upstream_is_a_warning():
         }
     )
     result = validate_strategy_graph(graph)
-    assert result.valid is True  # a warning, not an error — should not block saving
+    assert result.valid is False  # Numeric indicator output cannot safely gate risk execution
+    assert any(issue.code == "INVALID_CONNECTION" for issue in result.errors)
     assert any(issue.code == "RISK_NODE_NO_CONDITION_UPSTREAM" for issue in result.warnings)

@@ -2,7 +2,7 @@
 mutated in place — every save creates a new immutable StrategyVersion row
 (see app.database.models.strategy), so past versions are never destroyed.
 """
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user, get_db
@@ -23,6 +23,14 @@ from app.schemas.strategy import (
 from app.strategy_engine.validator import validate_strategy_graph
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
+
+
+@router.post("/validate-graph", response_model=StrategyValidationResult)
+async def validate_unsaved_graph(
+    graph: StrategyGraph, current_user: User = Depends(get_current_user)
+) -> StrategyValidationResult:
+    """Check the current builder graph before creating a saved algorithm."""
+    return validate_strategy_graph(graph)
 
 
 def _current_version_number(strategy: Strategy) -> int:
@@ -78,19 +86,13 @@ async def create_strategy(
     repo = StrategyRepository(db)
     strategy = Strategy(user_id=current_user.id, name=payload.name, description=payload.description)
     repo.add(strategy)
-    await repo.flush()  # assign strategy.id before the version row references it
-
-    version = StrategyVersion(
-        strategy_id=strategy.id,
-        version_number=1,
-        graph_json=payload.graph.model_dump(by_alias=True),
-        created_by_user_id=current_user.id,
-    )
-    repo.add_version(version)
+    await repo.flush()
+    repo.add_version(StrategyVersion(
+        strategy_id=strategy.id, version_number=1,
+        graph_json=payload.graph.model_dump(by_alias=True), created_by_user_id=current_user.id,
+    ))
     await repo.commit()
-
-    strategy = await repo.get_with_versions(strategy.id)
-    return _to_detail(strategy)
+    return _to_detail(await repo.get_with_versions(strategy.id))
 
 
 @router.get("", response_model=list[StrategySummaryOut])
@@ -116,26 +118,23 @@ async def update_strategy(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StrategyDetailOut:
+    from sqlalchemy import select
+    # Serialize version allocation on the parent row in PostgreSQL.
+    await db.execute(select(Strategy).where(
+        Strategy.id == strategy_id, Strategy.user_id == current_user.id
+    ).with_for_update())
     repo = StrategyRepository(db)
     strategy = await _get_owned_strategy(db, strategy_id, current_user.id)
-
     if payload.name is not None:
         strategy.name = payload.name
-    if payload.description is not None:
+    if 'description' in payload.model_fields_set:
         strategy.description = payload.description
-
-    next_version_number = await repo.next_version_number(strategy.id)
-    version = StrategyVersion(
-        strategy_id=strategy.id,
-        version_number=next_version_number,
-        graph_json=payload.graph.model_dump(by_alias=True),
-        created_by_user_id=current_user.id,
-    )
-    repo.add_version(version)
+    repo.add_version(StrategyVersion(
+        strategy_id=strategy.id, version_number=await repo.next_version_number(strategy.id),
+        graph_json=payload.graph.model_dump(by_alias=True), created_by_user_id=current_user.id,
+    ))
     await repo.commit()
-
-    strategy = await repo.get_with_versions(strategy.id)
-    return _to_detail(strategy)
+    return _to_detail(await repo.get_with_versions(strategy.id))
 
 
 @router.delete("/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -189,37 +188,17 @@ async def execute_strategy(
     # Create executor and evaluate
     executor = StrategyExecutor(graph)
 
-    # Fetch latest market data (use Binance)
-    from app.exchanges.ccxt_service import CCXTExchange
-    client = CCXTExchange(exchange_id="binance", testnet=True)
-    candles = await client.fetch_ohlcv(
-        symbol="BTC/USDT",
-        timeframe="1h",
-        since=None,
-        limit=100,
-    )
-
+    from app.market_data.historical import fetch_latest_ohlcv
+    candles_pd = await fetch_latest_ohlcv(symbol="BTC/USDT", timeframe="1h", limit=100)
+    from app.market_data.historical import TIMEFRAME_DELTA
+    from app.core.exceptions import AppError
     import pandas as pd
-    candles_pd = pd.DataFrame(
-        [
-            {
-                "timestamp": c.timestamp,
-                "open": c.open,
-                "high": c.high,
-                "low": c.low,
-                "close": c.close,
-                "volume": c.volume,
-            }
-            for c in candles
-        ]
-    )
-
+    candles_pd = candles_pd[candles_pd.timestamp + TIMEFRAME_DELTA["1h"] <= pd.Timestamp.now(tz="UTC")]
+    if candles_pd.empty:
+        raise AppError("MARKET_DATA_UNAVAILABLE", "No closed candles available", 503)
     market_context = {
-        "symbol": "BTC/USDT",
-        "timeframe": "1h",
-        "candles": candles_pd,
-        "current_price": float(candles[-1].close),  # close price
-        "sentiment": None,
+        "symbol": "BTC/USDT", "timeframe": "1h", "candles": candles_pd,
+        "current_price": float(candles_pd.iloc[-1].close), "sentiment": None,
     }
 
     # Evaluate strategy
@@ -235,5 +214,5 @@ async def execute_strategy(
             }
             for s in signals
         ],
-        "candle_count": len(candles),
+        "candle_count": len(candles_pd),
     }

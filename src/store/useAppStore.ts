@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useStrategyStore } from './useStrategyStore'
 
 interface User {
   name: string
@@ -24,26 +25,44 @@ interface AppState {
   searchTerm: string
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
+  setUser: (user: Partial<User>) => void
+  logout: () => void
   markNotificationRead: (id: string) => void
   setSearchTerm: (value: string) => void
+}
+
+function loadUserFromStorage(): User {
+  try {
+    const stored = localStorage.getItem('user')
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      return {
+        name: parsed.full_name || parsed.name || '',
+        email: parsed.email || '',
+        plan: parsed.plan || 'free',
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return { name: '', email: '', plan: 'free' }
 }
 
 export const useAppStore = create<AppState>((set) => ({
   sidebarCollapsed: false,
   marketOpen: true,
-  user: {
-    name: 'Alex Chen',
-    email: 'alex@algoflow.io',
-    plan: 'pro',
-  },
-  notifications: [
-    { id: '1', title: 'Trade Executed', message: 'RSI Momentum bot bought 0.15 BTC at $67,842', time: '2 min ago', read: false, type: 'trade' },
-    { id: '2', title: 'Strategy Alert', message: 'Golden Cross detected on ETH/USDT 4H', time: '15 min ago', read: false, type: 'alert' },
-    { id: '3', title: 'System Update', message: 'New sentiment analysis model deployed', time: '1 hr ago', read: true, type: 'system' },
-  ],
+  user: loadUserFromStorage(),
+  notifications: [],
   searchTerm: '',
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+  setUser: (u) => set((s) => ({ user: { ...s.user, ...u } })),
+  logout: () => {
+    useStrategyStore.getState().reset()
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('user')
+    set({ user: { name: '', email: '', plan: 'free' }, notifications: [] })
+  },
   markNotificationRead: (id) =>
     set((s) => ({
       notifications: s.notifications.map((n) =>

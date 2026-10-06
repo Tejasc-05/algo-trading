@@ -138,3 +138,10 @@ async def test_user_cannot_access_another_users_strategy(client: AsyncClient, au
 
     list_response = await client.get("/api/strategies", headers=other_headers)
     assert created["id"] not in [s["id"] for s in list_response.json()]
+
+    for action in ('validate', 'execute'):
+        response = await client.post(f"/api/strategies/{created['id']}/{action}", headers=other_headers)
+        assert response.status_code == 404
+    own = await client.get(f"/api/strategies/{created['id']}", headers=auth_headers)
+    assert own.status_code == 200
+    assert own.json()['current_version'] == 1

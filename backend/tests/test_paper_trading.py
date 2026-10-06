@@ -49,8 +49,8 @@ async def test_apply_fill_to_portfolio_lifecycle(db_session: AsyncSession):
 
     account = PaperAccount(
         user_id=user.id,
-        starting_balance=10000.0,
-        balance=10000.0,
+        starting_balance=100000.0,
+        balance=100000.0,
         symbol="BTC/USDT",
     )
     db_session.add(account)
@@ -67,12 +67,12 @@ async def test_apply_fill_to_portfolio_lifecycle(db_session: AsyncSession):
     )
 
     # Cost = 50,000 + 50 = 50,050 -> Balance = 10,000 - 50,050 = -40,050
-    assert state["cash_balance"] == pytest.approx(-40050.0)
+    assert state["cash_balance"] == pytest.approx(49950.0)
     assert len(state["positions"]) == 1
     pos = state["positions"][0]
     assert pos.symbol == "BTC/USDT"
     assert pos.quantity == 1.0
-    assert pos.average_entry_price == 50000.0
+    assert pos.average_entry_price == 50050.0
 
     # Step 2: Execute SELL of 1.0 BTC at 55,000 with 55 fee
     sell_fill = {
@@ -85,8 +85,8 @@ async def test_apply_fill_to_portfolio_lifecycle(db_session: AsyncSession):
     )
 
     # Proceeds = 55,000 - 55 = 54,945 -> Balance = -40,050 + 54,945 = 14,895
-    assert state2["cash_balance"] == pytest.approx(14895.0)
+    assert state2["cash_balance"] == pytest.approx(104895.0)
     # Net profit = (55,000 - 50,000)*1 - 55 = 4,945
-    assert state2["pnl"] == pytest.approx(4945.0)
+    assert state2["pnl"] == pytest.approx(4895.0)
     # Position should now be closed
     assert len(state2["positions"]) == 0

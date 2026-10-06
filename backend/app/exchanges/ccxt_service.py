@@ -5,8 +5,9 @@ exchange). Credentials are decrypted at runtime from the Fernet-encrypted
 columns in ExchangeConnection — never stored in plain text, never returned
 by any API response.
 """
+import asyncio
 import ccxt
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.config import get_settings
 from app.core.exceptions import AppError
@@ -15,9 +16,8 @@ from app.exchanges.base import Candle, ExchangeInterface, OrderResult, Ticker
 
 
 class CCXTExchange(ExchangeInterface):
-    """CCXT-backed exchange implementation. Never places a real order unless
-    `enable_live_trading` is True and the caller has explicitly confirmed
-    live (not paper) execution."""
+    """CCXT-backed market data. Real order execution is not implemented,
+    and remains blocked even when the live-trading feature flag is set."""
 
     def __init__(self, exchange_id: str, api_key: str | None = None, api_secret: str | None = None,
                  passphrase: str | None = None, testnet: bool = False):
@@ -26,7 +26,7 @@ class CCXTExchange(ExchangeInterface):
 
         # Build CCXT exchange instance
         exchange_class = getattr(ccxt, exchange_id, None)
-        if exchange_class is None:
+        if exchange_id not in ccxt.exchanges or exchange_class is None:
             raise AppError(
                 code="UNSUPPORTED_EXCHANGE",
                 message=f"Exchange '{exchange_id}' is not supported by CCXT",
@@ -44,8 +44,8 @@ class CCXTExchange(ExchangeInterface):
         if testnet:
             try:
                 self._exchange.set_sandbox_mode(True)
-            except Exception:
-                pass
+            except Exception as exc:
+                raise AppError("SANDBOX_UNAVAILABLE", "Exchange sandbox is unavailable", 400) from exc
 
     @classmethod
     def from_connection(cls, connection) -> "CCXTExchange":
@@ -66,7 +66,7 @@ class CCXTExchange(ExchangeInterface):
         )
 
     async def fetch_ticker(self, symbol: str) -> Ticker:
-        ticker = self._exchange.fetch_ticker(symbol)
+        ticker = await asyncio.to_thread(self._exchange.fetch_ticker, symbol)
         return Ticker(
             symbol=symbol,
             last_price=float(ticker["last"]),
@@ -75,15 +75,15 @@ class CCXTExchange(ExchangeInterface):
             high_24h=float(ticker["high"]) if ticker.get("high") else None,
             low_24h=float(ticker["low"]) if ticker.get("low") else None,
             volume_24h=float(ticker["quoteVolume"]) if ticker.get("quoteVolume") else None,
-            timestamp=datetime.fromtimestamp(ticker["timestamp"] / 1000) if ticker.get("timestamp") else datetime.utcnow(),
+            timestamp=datetime.fromtimestamp(ticker["timestamp"] / 1000, timezone.utc) if ticker.get("timestamp") else datetime.now(timezone.utc),
         )
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str, since: datetime | None, limit: int) -> list[Candle]:
         since_ms = int(since.timestamp() * 1000) if since else None
-        ohlcv = self._exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since_ms, limit=limit)
+        ohlcv = await asyncio.to_thread(self._exchange.fetch_ohlcv, symbol, timeframe=timeframe, since=since_ms, limit=limit)
         return [
             Candle(
-                timestamp=datetime.fromtimestamp(candle[0] / 1000),
+                timestamp=datetime.fromtimestamp(candle[0] / 1000, timezone.utc),
                 open=float(candle[1]),
                 high=float(candle[2]),
                 low=float(candle[3]),
@@ -94,11 +94,11 @@ class CCXTExchange(ExchangeInterface):
         ]
 
     async def fetch_current_price(self, symbol: str) -> float:
-        ticker = self._exchange.fetch_ticker(symbol)
+        ticker = await asyncio.to_thread(self._exchange.fetch_ticker, symbol)
         return float(ticker["last"])
 
     async def fetch_exchange_info(self) -> dict:
-        markets = self._exchange.load_markets()
+        markets = await asyncio.to_thread(self._exchange.load_markets)
         return {
             "exchange_id": self.exchange_id,
             "symbols": list(markets.keys()),
@@ -112,24 +112,12 @@ class CCXTExchange(ExchangeInterface):
         if not settings.enable_live_trading:
             raise AppError(
                 code="LIVE_TRADING_DISABLED",
-                message="Live trading is disabled. Set ENABLE_LIVE_TRADING=true to enable.",
+                message="Live trading is disabled; real execution is not implemented.",
                 status_code=403,
             )
 
-        order = self._exchange.create_order(
-            symbol=symbol,
-            side=side,
-            type=order_type,
-            amount=quantity,
-            price=price,
-        )
-        return OrderResult(
-            exchange_order_id=str(order.get("id", "")),
-            symbol=symbol,
-            side=side,
-            order_type=order_type,
-            quantity=quantity,
-            price=float(order.get("price")) if order.get("price") else None,
-            status=str(order.get("status", "unknown")),
-            raw=order,
+        raise AppError(
+            code="LIVE_EXECUTION_NOT_IMPLEMENTED",
+            message="Real execution requires a separately reviewed execution service with risk limits and order reconciliation.",
+            status_code=501,
         )

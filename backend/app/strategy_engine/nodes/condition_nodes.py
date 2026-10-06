@@ -9,7 +9,7 @@ COMPARISON_OPERATORS = {"<", ">", "<=", ">=", "==", "!="}
 
 
 class ConditionParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     operator: Literal["<", ">", "<=", ">=", "==", "!=", "crosses_above", "crosses_below"]
     value: float | None = None

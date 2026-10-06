@@ -15,6 +15,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production")
 os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+os.environ.setdefault("DEBUG", "false")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:5173")
 
 from collections.abc import AsyncGenerator  # noqa: E402
@@ -96,3 +97,24 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     async with TestSessionLocal() as session:
         yield session
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def offline_market(monkeypatch):
+    from app.market_data.historical import generate_synthetic_ohlcv
+    from app.exchanges.base import Ticker
+    from datetime import datetime, timezone
+    async def latest(symbol, timeframe, limit=100):
+        return generate_synthetic_ohlcv(timeframe=timeframe, limit=limit)
+    async def history(symbol, timeframe, start, end):
+        return generate_synthetic_ohlcv(start=start, end=end, timeframe=timeframe)
+    async def ticker(self, symbol):
+        return Ticker(symbol=symbol, last_price=100, bid=None, ask=None, high_24h=None, low_24h=None, volume_24h=None, timestamp=datetime.now(timezone.utc))
+    async def publish(*args, **kwargs):
+        pass
+    for module in ('app.api.routes.market', 'app.paper_trading.engine', 'app.market_data.historical'):
+        monkeypatch.setattr(f'{module}.fetch_latest_ohlcv', latest)
+    for module in ('app.backtesting.vectorbt_engine', 'app.backtesting.backtrader_engine'):
+        monkeypatch.setattr(f'{module}.fetch_historical_ohlcv', history)
+    monkeypatch.setattr('app.exchanges.ccxt_service.CCXTExchange.fetch_ticker', ticker)
+    monkeypatch.setattr('app.redis.pubsub.publish_user_event', publish)

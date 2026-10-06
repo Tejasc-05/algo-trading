@@ -1,7 +1,8 @@
+import asyncio
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import RateLimiter, get_db
+from app.api.dependencies import RateLimiter, get_db, get_current_user
 from app.core.exceptions import ConflictError, UnauthorizedError
 from app.core.security import create_access_token, hash_password, verify_password
 from app.database.models.user import User
@@ -24,7 +25,7 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 
     user = User(
         email=payload.email.lower(),
-        hashed_password=hash_password(payload.password),
+        hashed_password=await asyncio.to_thread(hash_password, payload.password),
         full_name=payload.full_name,
     )
     repo.add(user)
@@ -38,10 +39,19 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     repo = UserRepository(db)
     user = await repo.get_by_email(payload.email)
-    if user is None or not verify_password(payload.password, user.hashed_password):
+    if user is None or not await asyncio.to_thread(verify_password, payload.password, user.hashed_password):
         raise UnauthorizedError("Invalid email or password", code="INVALID_CREDENTIALS")
     if not user.is_active:
         raise UnauthorizedError("This account is inactive", code="ACCOUNT_INACTIVE")
 
     token = create_access_token(subject=user.id)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+
+# Added endpoint to get current logged-in user
+@router.get(
+    "/me",
+    response_model=UserOut,
+    dependencies=[Depends(RateLimiter("me"))],
+)
+async def read_current_user(current_user: User = Depends(get_current_user)) -> UserOut:
+    return UserOut.model_validate(current_user)
