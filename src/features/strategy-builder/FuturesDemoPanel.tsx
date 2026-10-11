@@ -1,3 +1,4 @@
+import { DemoDiagnostics } from './DemoDiagnostics'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
@@ -76,10 +77,12 @@ export function FuturesDemoPanel() {
       </div>
       {message && <p role="status" className="text-sm">{message}</p>}
       {(sessions.error || connections.error || strategies.error) && <p role="alert" className="text-sm text-destructive">Unable to load demo data. Check the backend connection.</p>}
+      <Button variant="outline" disabled={sessions.loading || busy} onClick={() => void sessions.refetch()}>Refresh session status</Button>
       {sessions.data?.length === 0 && <p className="text-sm text-muted-foreground">No futures demo sessions yet.</p>}
-      {(sessions.data ?? []).map((session: any) => <div key={session.id} className="space-y-2 rounded border border-border p-3">
+      {(sessions.data ?? []).map((session) => <div key={session.id} className="space-y-2 rounded border border-border p-3">
         <p className="text-sm font-medium">{session.symbol} · {session.timeframe} · {session.status}</p>
         <p className="text-xs text-muted-foreground">{session.message} · Cap {session.max_notional} USDT · Loss limit {session.loss_limit} USDT</p>
+        <DemoDiagnostics session={session} />
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" disabled={busy || session.status==='stopped'} onClick={() => perform(() => api.futuresDemo.tick(session.id), 'Demo orders reconciled and current candle checked.')}>Reconcile / Run Tick</Button>
           <Button size="sm" variant="outline" disabled={busy || !['paused','needs_attention'].includes(session.status)} onClick={() => perform(() => api.futuresDemo.resume(session.id), 'Demo session resumed.')}>Resume Demo</Button>

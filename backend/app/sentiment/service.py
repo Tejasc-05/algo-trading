@@ -1,10 +1,6 @@
-"""Sentiment abstraction: a pluggable provider behind a stable service facade,
-so swapping the underlying model (e.g. a pretrained FinBERT model in Phase 9)
-never touches callers. No model is trained or invoked yet — see
-app.sentiment.providers for the placeholder that Phase 9 fills in.
-"""
+"""Stable provider facade for news sentiment; never executes trading orders."""
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
@@ -16,6 +12,16 @@ class SentimentResult:
     label: Literal["positive", "negative", "neutral"]
     confidence: float  # 0..1
     as_of: datetime
+    model_revision: str = 'unknown'
+    provider: str = 'newsapi'
+    model: str = 'ProsusAI/finbert'
+    articles: list = field(default_factory=list)
+    counts: dict = field(default_factory=dict)
+    probabilities: dict = field(default_factory=dict)
+    feed_delay_hours: int = 24
+    inference_mode: str = 'local'
+    warnings: list[str] = field(default_factory=list)
+    window_hours: int = 24
 
 
 class SentimentProvider(ABC):

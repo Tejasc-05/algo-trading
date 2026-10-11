@@ -23,6 +23,7 @@ class DemoSession(Base, TimestampMixin):
     lease_owner: Mapped[str | None] = mapped_column(String(36))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     message: Mapped[str | None] = mapped_column(String(255))
+    diagnostics: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
 
 
 class DemoOrder(Base, TimestampMixin):

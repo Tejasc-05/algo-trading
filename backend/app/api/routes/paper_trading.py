@@ -1,11 +1,4 @@
-"""Minimal paper trading endpoints for the MVP.
-
-These routes implement a lightweight paper account + order creation API and a
-developer helper to materialize fills deterministically. The full production
-engine (background processing, realtime events, advanced matching) is
-implemented in later phases.
-"""
-from datetime import datetime, timezone
+"""Owned paper accounts, controls and local simulation read models."""
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, status, HTTPException
@@ -23,6 +16,10 @@ from app.paper_trading.service import settle_order
 from app.paper_trading.account_views import account_view
 from app.core.exceptions import AppError
 from app.database.repositories.strategy_repository import StrategyRepository
+
+from app.paper_trading.lifecycle import owned_account, stop_account
+from app.paper_trading.account_views import snapshot
+from app.paper_trading.engine import note, record_failure
 
 router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
 
@@ -54,9 +51,19 @@ async def start_paper_trading(
         raise AppError("STRATEGY_NOT_FOUND", "Strategy not found", 404)
     from app.schemas.strategy import StrategyGraph
     from app.strategy_engine.validator import validate_strategy_graph
+    if not strategy.versions:
+        raise AppError("INVALID_STRATEGY", "Save a strategy version first", 422)
     latest = max(strategy.versions, key=lambda v: v.version_number)
-    if any(node['data']['nodeType'] in {'openLong', 'openShort', 'closePosition'} for node in latest.graph_json['nodes']):
-        raise AppError('FUTURES_DEMO_REQUIRED', 'Use Binance Futures Demo for futures actions; paper accounts are spot only.', 422)
+    types = {node['data']['nodeType'] for node in latest.graph_json['nodes']}
+    if payload.market_type == 'spot' and types & {'openLong', 'openShort', 'closePosition'}:
+        raise AppError('FUTURES_DEMO_REQUIRED', 'Choose Futures simulation for Open Long/Short actions, or use Binance Futures Demo.', 422)
+    if payload.market_type == 'futures':
+        if not payload.symbol.endswith('/USDT') or not types & {'openLong', 'openShort'} or types & {'buy', 'sell'}:
+            raise AppError('INVALID_FUTURES_STRATEGY', 'USDT futures require Open Long/Short actions and no spot Buy/Sell actions.', 422)
+        if any(n['data'].get('params', {}).get('type', 'market') != 'market' for n in latest.graph_json['nodes'] if n['data']['nodeType'] in {'openLong', 'openShort'}):
+            raise AppError('FUTURES_LIMIT_UNSUPPORTED', 'Futures paper entries currently require market orders.', 422)
+    elif payload.leverage != 1:
+        raise AppError('INVALID_LEVERAGE', 'Spot paper accounts use 1x only.', 422)
     validation = validate_strategy_graph(StrategyGraph.model_validate(latest.graph_json))
     if not validation.valid:
         raise AppError("INVALID_STRATEGY", validation.errors[0].message, 422)
@@ -64,7 +71,10 @@ async def start_paper_trading(
         user_id=current_user.id,
         strategy_id=payload.strategy_id,
         strategy_version_id=latest.id,
-        name=f"Paper Account {payload.strategy_id}",
+        name=f"{strategy.name} · {payload.symbol} · {payload.market_type}",
+        market_type=payload.market_type, leverage=payload.leverage,
+        fee_rate=payload.fee_rate, slippage_rate=payload.slippage_rate,
+        funding_rate=payload.funding_rate, maintenance_margin_rate=payload.maintenance_margin_rate,
         symbol=payload.symbol,
         currency=payload.symbol.split("/")[1],
         timeframe=payload.timeframe,
@@ -72,6 +82,9 @@ async def start_paper_trading(
         balance=payload.starting_balance,
     )
     db.add(account)
+    await db.flush()
+    note(account, 'WAITING_FIRST_CHECK', 'Waiting for the paper worker’s first candle check')
+    await snapshot(db, account)
     await db.commit()
     await db.refresh(account)
 
@@ -101,13 +114,14 @@ async def create_paper_order(
     db: AsyncSession = Depends(get_db),
 ):
     # ensure account belongs to user
-    res = await db.execute(select(PaperAccount).where(PaperAccount.id == payload.paper_account_id))
-    account = res.scalars().first()
+    account = await owned_account(db, current_user.id, payload.paper_account_id, lock=True)
     if not account or account.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Paper account not found")
 
     if not account.is_active:
         raise AppError("ACCOUNT_INACTIVE", "Paper account is inactive", 409)
+    if account.market_type != "spot":
+        raise AppError("FUTURES_MANUAL_ORDER_DISABLED", "Use futures strategy actions for simulated futures execution.", 422)
     if payload.symbol != account.symbol:
         raise AppError("SYMBOL_MISMATCH", "Order symbol must match paper account", 422)
     order = Order(
@@ -143,6 +157,9 @@ async def simulate_fill_endpoint(
     db: AsyncSession = Depends(get_db),
 ):
     trade = await settle_order(db, payload.order_id, current_user.id, payload.current_price)
+    order = await db.get(Order, trade.order_id)
+    account = await owned_account(db, current_user.id, order.paper_account_id)
+    await snapshot(db, account)
     await db.commit()
     await db.refresh(trade)
 
@@ -163,6 +180,7 @@ async def simulate_fill_endpoint(
 
 class PaperTradingStopRequest(BaseModel):
     paper_account_id: Optional[str] = None
+    close_positions: bool = False
 
 
 @router.post("/stop", response_model=PaperAccountOut)
@@ -171,22 +189,49 @@ async def stop_paper_trading(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> PaperAccountOut:
-    stmt = select(PaperAccount).where(PaperAccount.user_id == current_user.id, PaperAccount.is_active == True)
     if payload and payload.paper_account_id:
-        stmt = stmt.where(PaperAccount.id == payload.paper_account_id)
-    res = await db.execute(stmt)
-    account = res.scalars().first()
-    if not account:
-        raise HTTPException(status_code=404, detail="No active paper account found")
-
-    account.is_active = False
-    await db.commit()
-    await db.refresh(account)
-
-    pnl = float(account.balance) - float(account.starting_balance)
-    pnl_percent = (pnl / float(account.starting_balance) * 100) if float(account.starting_balance) else 0.0
-
+        account = await owned_account(db, current_user.id, payload.paper_account_id, lock=True)
+    else:
+        account = (await db.execute(select(PaperAccount).where(PaperAccount.user_id == current_user.id,
+            PaperAccount.is_active.is_(True)).order_by(PaperAccount.created_at.desc()).with_for_update())).scalars().first()
+        if not account: raise AppError('ACCOUNT_NOT_FOUND', 'No active paper account found', 404)
+    await stop_account(db, account, close_positions=bool(payload and payload.close_positions))
     return await account_view(db, account)
+
+
+@router.post('/resume', response_model=PaperAccountOut)
+async def resume_paper(payload: PaperTradingStopRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    account = await owned_account(db, current_user.id, payload.paper_account_id, lock=True)
+    if not account.strategy_version_id:
+        raise AppError('VERSION_NOT_FOUND', 'Start a new account with a saved strategy version.', 409)
+    from app.paper_trading.portfolio import list_open_positions
+    if float(account.balance) <= 0 and not await list_open_positions(db, account):
+        raise AppError('INSUFFICIENT_BALANCE', 'Start a new account; this account has exhausted its virtual balance.', 409)
+    account.is_active = True
+    note(account, 'RESUMED', 'Resumed with the same saved strategy version; waiting for candle check.', last_error=None)
+    await db.commit()
+    return await account_view(db, account)
+
+
+@router.get('/accounts', response_model=list[PaperAccountOut])
+async def list_accounts(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    accounts = list((await db.execute(select(PaperAccount).where(PaperAccount.user_id == current_user.id)
+        .order_by(PaperAccount.created_at.desc()))).scalars())
+    return [await account_view(db, account) for account in accounts]
+
+
+@router.get('/performance')
+async def paper_performance(paper_account_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await owned_account(db, current_user.id, paper_account_id)
+    from app.paper_trading.analytics import portfolio_performance
+    return await portfolio_performance(db, current_user.id, paper_account_id)
+
+
+@router.get('/positions')
+async def paper_positions(paper_account_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    await owned_account(db, current_user.id, paper_account_id)
+    from app.paper_trading.analytics import portfolio_summary
+    return (await portfolio_summary(db, current_user.id, paper_account_id))['positions']
 
 
 class PaperTradingTickRequest(BaseModel):
@@ -225,22 +270,30 @@ async def run_paper_tick(
         raise AppError("VERSION_NOT_FOUND", "Paper account has no pinned strategy version; start a new account", 409)
     graph = StrategyGraph.model_validate(latest_version.graph_json)
 
-    result = await run_paper_trading_tick(
-        db=db,
-        account=account,
-        strategy_graph=graph,
-        symbol=account.symbol or "BTC/USDT",
-        timeframe=account.timeframe or "1h",
-    )
+    account_id = account.id
+    try:
+        result = await run_paper_trading_tick(
+            db=db,
+            account=account,
+            strategy_graph=graph,
+            symbol=account.symbol or "BTC/USDT",
+            timeframe=account.timeframe or "1h",
+        )
+    except AppError as exc:
+        await record_failure(db, account_id, exc.code, exc.message)
+        raise
     return result
 
 
 @router.get("/account", response_model=PaperAccountOut)
 async def get_paper_account(
+    paper_account_id: str | None = None,
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> PaperAccountOut:
+    if paper_account_id:
+        return await account_view(db, await owned_account(db, current_user.id, paper_account_id))
     res = await db.execute(
-        select(PaperAccount).where(PaperAccount.user_id == current_user.id, PaperAccount.is_active == True)
+        select(PaperAccount).where(PaperAccount.user_id == current_user.id, PaperAccount.is_active == True).order_by(PaperAccount.created_at.desc())
     )
     account = res.scalars().first()
     if not account:
@@ -253,21 +306,21 @@ async def get_paper_account(
         if not account:
             raise HTTPException(status_code=404, detail="No paper account found")
 
-    pnl = float(account.balance) - float(account.starting_balance)
-    pnl_percent = (pnl / float(account.starting_balance) * 100) if float(account.starting_balance) else 0.0
-
     return await account_view(db, account)
 
 
 @router.get("/trades", response_model=list[PaperTradeOut])
 async def list_paper_trades(
+    paper_account_id: str | None = None,
     current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[PaperTradeOut]:
+    if paper_account_id: await owned_account(db, current_user.id, paper_account_id)
     res = await db.execute(
         select(Trade)
         .options(joinedload(Trade.order))
         .join(Order)
-        .where(Order.user_id == current_user.id)
+        .where(Order.user_id == current_user.id, Order.mode == TradingMode.PAPER,
+            *([Order.paper_account_id == paper_account_id] if paper_account_id else []))
         .order_by(Trade.executed_at.desc())
     )
     trades = res.scalars().all()
@@ -280,6 +333,7 @@ async def list_paper_trades(
             quantity=float(t.executed_quantity),
             price=float(t.executed_price),
             pnl=float(t.pnl) if t.pnl is not None else None,
+            fee=float(t.fee),
             executed_at=t.executed_at,
         )
         for t in trades

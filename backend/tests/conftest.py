@@ -16,6 +16,7 @@ os.environ.setdefault("JWT_SECRET", "test-secret-not-for-production")
 os.environ.setdefault("ENCRYPTION_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("DEBUG", "false")
+os.environ.setdefault("SENTIMENT_NEWS_PROVIDER", "newsapi")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:5173")
 
 from collections.abc import AsyncGenerator  # noqa: E402

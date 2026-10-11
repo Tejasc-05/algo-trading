@@ -1,7 +1,9 @@
 """Centralized application configuration, loaded once from environment variables."""
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -42,6 +44,11 @@ class Settings(BaseSettings):
 
     # Sentiment API credentials
     newsapi_api_key: str | None = None
+    hf_token: str | None = None
+    sentiment_inference_mode: Literal['local', 'hosted'] = 'local'
+    sentiment_news_provider: Literal['rss', 'newsapi'] = 'rss'
+    rss_news_window_hours: int = Field(default=72, ge=24, le=168)
+    newsapi_delay_hours: int = Field(default=24, ge=0, le=168)
     cryptopanic_api_key: str | None = None
     twitter_api_key: str | None = None
 

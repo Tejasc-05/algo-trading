@@ -30,12 +30,13 @@ class FakeDemo:
         if not connection.is_testnet:
             raise AppError('DEMO_CONNECTION_REQUIRED', 'Demo only', 422)
     async def account(self):
-        return {'canTrade': True, 'totalMarginBalance': '10000', 'availableBalance': '10000', 'positions': []}
+        return {'totalMarginBalance': '10000', 'availableBalance': '10000', 'positions': []}
     async def positions(self, symbol):
         return [{'symbol': symbol, 'positionAmt': str(type(self).qty), 'entryPrice': '100', 'positionSide': 'BOTH', 'leverage': '1', 'marginType': 'isolated'}]
     async def rules(self, symbol):
         return {'MARKET_LOT_SIZE': {'stepSize':'0.001','minQty':'0.001','maxQty':'100'}, 'PRICE_FILTER':{'tickSize':'0.01'},'MIN_NOTIONAL':{'notional':'5'}}
     async def request(self, method, path, params=None, signed=False):
+        if path.endswith('/accountConfig'): return {'canTrade':True}
         if path.endswith('/positionSide/dual'): return {'dualSidePosition':False}
         if path.endswith('/multiAssetsMargin'): return {'multiAssetsMargin':False}
         if path.endswith('/openOrders') or path.endswith('/openAlgoOrders'): return []
@@ -72,6 +73,27 @@ class FakeDemo:
 def reset_fake():
     FakeDemo.calls=[]; FakeDemo.queries={}; FakeDemo.qty=Decimal(0)
     FakeDemo.fail_entry=False; FakeDemo.fail_protection=False
+
+
+@pytest.mark.parametrize('status, expected', [(True, None), (False, 'DEMO_TRADING_UNAVAILABLE'),
+    (None, 'DEMO_TRADING_STATUS_UNKNOWN'), ('true', 'DEMO_TRADING_STATUS_UNKNOWN')])
+async def test_v3_account_permission_comes_from_configuration(status, expected):
+    from app.futures.service import verify_connection
+    class AccountAdapter(FakeDemo):
+        async def request(self, method, path, params=None, signed=False):
+            if path.endswith('/accountConfig'):
+                assert method == 'GET' and signed
+                return {} if status is None else {'canTrade': status}
+            return await super().request(method, path, params, signed)
+    adapter = AccountAdapter(SimpleNamespace(is_testnet=True))
+    if expected:
+        with pytest.raises(AppError) as exc:
+            await verify_connection(adapter)
+        assert exc.value.code == expected
+    else:
+        account = await verify_connection(adapter)
+        assert 'canTrade' not in account
+        assert account['availableBalance'] == '10000'
 
 
 async def activate(client, headers, monkeypatch, quantity=0.1, short=False):

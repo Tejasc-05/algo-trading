@@ -19,6 +19,7 @@ from app.futures.binance_demo import BinanceDemo, DemoRequestError, decimal, qua
 from app.market_data.historical import TIMEFRAME_DELTA
 from app.schemas.strategy import StrategyGraph
 from app.strategy_engine.executor import StrategyExecutor
+from app.futures.diagnostics import note, evaluation
 
 UNRESOLVED = {'SENDING', 'UNKNOWN'}
 TERMINAL = {'FILLED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REJECTED', 'FINISHED'}
@@ -41,12 +42,16 @@ def validate_demo_graph(graph):
 
 async def verify_connection(adapter):
     account = await adapter.account()
+    # Account V3 contains balances/positions, not account permissions.
+    config = await adapter.request('GET', '/fapi/v1/accountConfig', signed=True)
     mode = await adapter.request('GET', '/fapi/v1/positionSide/dual', signed=True)
     multi = await adapter.request('GET', '/fapi/v1/multiAssetsMargin', signed=True)
     if mode.get('dualSidePosition') or multi.get('multiAssetsMargin'):
         raise AppError('DEMO_ACCOUNT_MODE', 'Use one-way position mode and single-asset USDT margin in a dedicated demo account.', 422)
-    if account.get('canTrade') is not True:
+    if config.get('canTrade') is False:
         raise AppError('DEMO_TRADING_UNAVAILABLE', 'Binance demo account is not enabled for trading.', 422)
+    if config.get('canTrade') is not True:
+        raise AppError('DEMO_TRADING_STATUS_UNKNOWN', 'Binance did not return a valid account trading status. Try verifying again.', 503)
     return account
 
 
@@ -83,6 +88,7 @@ async def create_session(db, user_id, payload):
     session = DemoSession(user_id=user_id, connection_id=connection.id, strategy_version_id=version.id,
         symbol=payload.symbol, timeframe=payload.timeframe, status='running', max_notional=payload.max_notional,
         loss_limit=payload.loss_limit, starting_equity=equity, message='Demo activated; waiting for a closed candle')
+    note(session, 'WAITING_FIRST_CHECK', 'Activated; the runner has not evaluated a closed candle yet.')
     db.add(session)
     try:
         await db.commit()
@@ -187,6 +193,7 @@ async def flatten(db, adapter, session, orders, key):
         _, remaining = await position(adapter, session)
         if remaining:
             raise AppError('DEMO_CLOSE_PENDING', 'Position remains open; reconcile it before continuing.', 409)
+    note(session, 'POSITION_FLAT', 'Demo position confirmed flat; reconciling protective orders.', position={'quantity': '0', 'side': 'flat'})
     await cleanup_protection(db, adapter, session, orders)
 
 
@@ -227,6 +234,8 @@ async def run_tick(db, session, stop=False, resume=False):
         adapter = BinanceDemo(connection)
         orders = await reconcile(db, adapter, session)
         row, qty = await position(adapter, session)
+        note(session, 'RECONCILED', 'Account and order reconciliation completed.',
+            position={'quantity': str(qty), 'side': 'long' if qty > 0 else 'short' if qty < 0 else 'flat'})
         entries = [order for order in orders if order.role == 'ENTRY' and order.state in {'FILLED', 'PARTIALLY_FILLED'}]
         latest_entry = max(entries, key=lambda item: item.created_at) if entries else None
         if stop:
@@ -242,6 +251,7 @@ async def run_tick(db, session, stop=False, resume=False):
             await flatten(db, adapter, session, orders, 'stop:' + (latest_entry.client_id if latest_entry else 'flat'))
             session.status = 'stopped'
             session.message = 'Stopped; demo position flat and protection canceled'
+            note(session, 'STOPPED', session.message, position={'quantity': '0', 'side': 'flat'})
             await db.commit()
             return session
         if qty and latest_entry is None:
@@ -263,6 +273,10 @@ async def run_tick(db, session, stop=False, resume=False):
                     raise AppError('DEMO_LOSS_LIMIT', 'Session loss limit remains exceeded; stop this session.', 409)
                 session.status = 'running'
                 session.message = 'Resumed by user after reconciliation'
+                note(session, 'RESUMED_WAITING_CHECK', 'Resumed; the next runner tick will evaluate entry conditions.', last_error=None)
+                await db.commit()
+            if not resume:
+                note(session, 'SESSION_PAUSED', 'Entries are disabled while the session is paused. Resolve the last error before resuming.')
                 await db.commit()
             return session
         account = await verify_connection(adapter)
@@ -273,6 +287,7 @@ async def run_tick(db, session, stop=False, resume=False):
             await flatten(db, adapter, session, orders, 'loss:' + (latest_entry.client_id if latest_entry else 'flat'))
             session.status = 'paused'
             session.message = 'Session loss limit reached; demo position closed'
+            note(session, 'LOSS_LIMIT_REACHED', session.message, position={'quantity': '0', 'side': 'flat'})
             await db.commit()
             return session
         raw = await adapter.request('GET', '/fapi/v1/klines', {'symbol': session.symbol, 'interval': session.timeframe, 'limit': 1000})
@@ -284,11 +299,16 @@ async def run_tick(db, session, stop=False, resume=False):
             raise AppError('DEMO_STALE_CANDLES', 'Binance demo candles are stale; entries paused.', 503)
         stamp = str(closed[-1][0])
         if session.last_bar == stamp:
+            note(session, 'WAITING_NEXT_CANDLE', 'Latest closed candle already evaluated; waiting for the next candle close.')
+            await db.commit()
             return session
         frame = pd.DataFrame([{'timestamp': pd.to_datetime(bar[0], unit='ms', utc=True),
             'open': float(bar[1]), 'high': float(bar[2]), 'low': float(bar[3]), 'close': float(bar[4]), 'volume': float(bar[5])} for bar in closed])
         version = await db.get(StrategyVersion, session.strategy_version_id)
-        signals = validate_demo_graph(StrategyGraph.model_validate(version.graph_json)).evaluate({'candles': frame})
+        trace = []
+        signals = validate_demo_graph(StrategyGraph.model_validate(version.graph_json)).evaluate({'candles': frame}, trace=trace)
+        snapshot = evaluation(session, trace, signals, closed, version.version_number)
+        note(session, 'CANDLE_EVALUATED', snapshot['decision'], evaluation=snapshot, last_error=None, entry_limits=None)
         session.last_bar = stamp
         session.message = 'Evaluated latest closed demo candle'
         await db.commit()
@@ -297,9 +317,13 @@ async def run_tick(db, session, stop=False, resume=False):
         if qty and closes:
             await flatten(db, adapter, session, orders, stamp)
             session.message = 'Strategy closed the demo position'
+            note(session, 'POSITION_CLOSED', session.message, position={'quantity': '0', 'side': 'flat'})
             await db.commit()
             return session
         if qty or not opens:
+            note(session, 'POSITION_OPEN' if qty else 'NO_ENTRY_SIGNAL',
+                'A position is already open; waiting for an exit or protective order. Additional entries are disabled.' if qty else 'Entry conditions did not produce a signal on the latest closed candle.')
+            await db.commit()
             return session
         pending_regular = await adapter.request('GET', '/fapi/v1/openOrders', signed=True)
         if pending_regular:
@@ -315,6 +339,13 @@ async def run_tick(db, session, stop=False, resume=False):
         mark = decimal((await adapter.request('GET', '/fapi/v1/premiumIndex', {'symbol': session.symbol}))['markPrice'])
         notional = amount * mark
         minimum = decimal(rules.get('MIN_NOTIONAL', {}).get('notional', 5))
+        note(session, 'CHECKING_ENTRY_LIMITS', 'Entry signal produced; checking exchange and session limits.',
+            entry_limits={'rounded_quantity': str(amount), 'mark_price': str(mark), 'notional': str(notional),
+                'exchange_minimum_notional': str(minimum), 'maximum_notional': str(session.max_notional),
+                'available_margin': str(account['availableBalance']),
+                'checks': [{'label':'Exchange minimum notional', 'passed': notional >= minimum},
+                    {'label':'Session notional cap', 'passed': notional <= decimal(session.max_notional)},
+                    {'label':'Available demo margin including 5% buffer', 'passed': notional * decimal('1.05') <= decimal(account['availableBalance'])}]})
         if notional < minimum or notional > decimal(session.max_notional) or notional * decimal('1.05') > decimal(account['availableBalance']):
             raise AppError('DEMO_RISK_LIMIT', 'Entry violates minimum notional, session notional cap or available demo margin.', 422)
         # Refuse new entries if account settings were changed externally.
@@ -330,6 +361,8 @@ async def run_tick(db, session, stop=False, resume=False):
         row, qty = await position(adapter, session)
         if not qty:
             raise AppError('DEMO_POSITION_PENDING', 'Filled entry is not visible in positions yet; reconcile before continuing.', 409)
+        note(session, 'ENTRY_POSITION_OBSERVED', 'Entry position observed; confirming stop loss and take profit.',
+            position={'quantity': str(qty), 'side': 'long' if qty > 0 else 'short'})
         try:
             await protect(db, adapter, session, entry, row)
         except AppError:
@@ -341,13 +374,17 @@ async def run_tick(db, session, stop=False, resume=False):
             await flatten(db, adapter, session, all_orders, 'fill-cap:' + entry.client_id)
             raise AppError('DEMO_FILL_RISK_LIMIT', 'Actual filled notional exceeded the cap; demo position closed.', 409)
         session.message = 'Demo entry filled with exchange-held stop loss and take profit'
+        note(session, 'ENTRY_FILLED', session.message, position={'quantity': str(qty), 'side': 'long' if qty > 0 else 'short'})
         await db.commit()
         return session
     except AppError as exc:
+        observed = session.diagnostics
         await db.rollback()
         await db.refresh(session)
         session.status = 'needs_attention'
         session.message = exc.message[:255]
+        session.diagnostics = observed
+        note(session, exc.code, exc.message, last_error={'code': exc.code, 'message': exc.message, 'at': datetime.now(timezone.utc).isoformat()})
         await db.commit()
         raise
     except Exception:
@@ -355,6 +392,7 @@ async def run_tick(db, session, stop=False, resume=False):
         await db.refresh(session)
         session.status = 'needs_attention'
         session.message = 'Unexpected demo failure. Reconcile account and orders before continuing.'
+        note(session, 'DEMO_NEEDS_ATTENTION', session.message, last_error={'code':'DEMO_NEEDS_ATTENTION', 'message': session.message})
         await db.commit()
         raise AppError('DEMO_NEEDS_ATTENTION', session.message, 503) from None
     finally:

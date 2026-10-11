@@ -1,9 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, String, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database.models.base import Base, TimestampMixin, uuid_pk
+from app.database.models.base import Base, TimestampMixin, uuid_pk, JSONVariant
 from app.database.models.enums import OrderSide, OrderStatus, OrderType, TradingMode
 
 
@@ -23,6 +23,13 @@ class PaperAccount(Base, TimestampMixin):
     )
     strategy_version_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("strategy_versions.id", ondelete="SET NULL"), nullable=True)
     last_processed_bar: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    market_type: Mapped[str] = mapped_column(String(16), default="spot", server_default="spot", nullable=False)
+    leverage: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    fee_rate: Mapped[float] = mapped_column(Numeric(12, 8), default=0.001, server_default="0.001", nullable=False)
+    slippage_rate: Mapped[float] = mapped_column(Numeric(12, 8), default=0.0005, server_default="0.0005", nullable=False)
+    maintenance_margin_rate: Mapped[float] = mapped_column(Numeric(12, 8), default=0.005, server_default="0.005", nullable=False)
+    funding_rate: Mapped[float] = mapped_column(Numeric(12, 8), default=0.0001, server_default="0.0001", nullable=False)
+    diagnostics: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="Paper Account", server_default="Paper Account")
     currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USDT", server_default="USDT")
     symbol: Mapped[str] = mapped_column(String(32), nullable=False, default="BTC/USDT", server_default="BTC/USDT")
@@ -62,6 +69,8 @@ class Order(Base, TimestampMixin):
     quantity: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)
     price: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
 
+    risk_params: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
+
     trades: Mapped[list["Trade"]] = relationship(back_populates="order", cascade="all, delete-orphan")
 
 
@@ -81,3 +90,11 @@ class Trade(Base, TimestampMixin):
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
     order: Mapped["Order"] = relationship(back_populates="trades")
+
+
+class PaperEquitySnapshot(Base):
+    __tablename__ = "paper_equity_snapshots"
+    id: Mapped[str] = uuid_pk()
+    paper_account_id: Mapped[str] = mapped_column(String(36), ForeignKey("paper_accounts.id", ondelete="CASCADE"), index=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    equity: Mapped[float] = mapped_column(Numeric(20, 8), nullable=False)

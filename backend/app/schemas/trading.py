@@ -1,6 +1,4 @@
-"""Request/response contracts for paper trading, exchanges, and portfolio
-endpoints. Real implementation lands in Phase 5 (exchanges) and Phase 7
-(paper trading engine) — routes currently return 501."""
+"""Request/response contracts for owned trading accounts and portfolios."""
 from datetime import datetime
 from typing import Literal
 
@@ -14,10 +12,26 @@ class PaperTradingStartRequest(BaseModel):
     strategy_id: str
     symbol: str = Field(pattern=r"^[A-Z0-9]{1,12}/[A-Z0-9]{1,12}$")
     timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "1h"
-    starting_balance: float = Field(default=10_000, gt=0)
+    starting_balance: float = Field(default=10_000, gt=0, le=1_000_000_000)
+    market_type: Literal["spot", "futures"] = "spot"
+    leverage: int = Field(default=1, ge=1, le=10)
+    fee_rate: float = Field(default=0.001, ge=0, le=0.01)
+    slippage_rate: float = Field(default=0.0005, ge=0, le=0.01)
+    funding_rate: float = Field(default=0.0001, ge=-0.01, le=0.01)
+    maintenance_margin_rate: float = Field(default=0.005, ge=0.001, le=0.05)
 
 
 class PaperAccountOut(BaseModel):
+    name: str = "Paper Account"
+    market_type: str = "spot"
+    leverage: int = 1
+    fee_rate: float = 0.001
+    slippage_rate: float = 0.0005
+    funding_rate: float = 0.0001
+    maintenance_margin_rate: float = 0.005
+    margin_used: float = 0
+    diagnostics: dict | None = None
+    strategy_version_id: str | None = None
     equity: float | None = None
     id: str
     strategy_id: str | None
@@ -39,6 +53,7 @@ class PaperTradeOut(BaseModel):
     quantity: float
     price: float | None
     pnl: float | None
+    fee: float = 0
     executed_at: datetime | None
 
 
@@ -68,6 +83,11 @@ class PositionOut(BaseModel):
     side: PositionSide
     quantity: float
     average_entry_price: float
+    margin: float = 0
+    liquidation_price: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    funding_paid: float = 0
     current_price: float | None
     pnl: float | None
     pnl_percent: float | None

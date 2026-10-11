@@ -188,7 +188,9 @@ async def fetch_latest_ohlcv(symbol: str, timeframe: str, limit: int = 100) -> O
             if not ohlcv:
                 continue
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-            return normalize_ohlcv(df)
+            normalized = normalize_ohlcv(df)
+            normalized.attrs['source'] = f'{exchange_id} public spot candles'
+            return normalized
         except Exception as exc:
             logger.warning("Failed to fetch latest OHLCV from %s: %s", exchange_id, exc)
             continue

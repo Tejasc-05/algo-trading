@@ -48,8 +48,11 @@ class StrategyExecutor:
             node.params = get_node_definition(node.node_type).params_model.model_validate(node.params).model_dump()
         self._execution_order = self._topological_order()
 
-    def evaluate(self, market_context: dict[str, Any]) -> list[Signal]:
+    def evaluate(self, market_context: dict[str, Any], *, trace: list[dict] | None = None) -> list[Signal]:
         """Evaluate the strategy against market data and return trading signals."""
+        if trace is not None:
+            trace.clear()
+        self._diagnostic_details = {} if trace is not None else None
         # Validate the graph first
         validation = validate_strategy_graph(self.graph)
         if not validation.valid:
@@ -74,6 +77,11 @@ class StrategyExecutor:
 
             output = self._evaluate_node(node, definition, inputs, market_context)
             node_outputs[node_id] = output
+            if trace is not None:
+                from app.strategy_engine.diagnostics import node_snapshot
+                trace_inputs = [self._to_float_series(value) for value in inputs] if definition.category == NodeCategory.CONDITION else inputs
+                trace.append(node_snapshot(node, definition, trace_inputs, output,
+                    self._diagnostic_details.get(node_id)))
 
             # If node produced a signal, capture it
             if isinstance(output, Signal):
@@ -165,6 +173,9 @@ class StrategyExecutor:
             slow = int(node.params.get("slow", 26))
             signal_period = int(node.params.get("signal", 9))
             frame = indicator_ops.macd(series, fast, slow, signal_period)
+            if self._diagnostic_details is not None:
+                from app.strategy_engine.diagnostics import tail
+                self._diagnostic_details[node.id] = {key: tail(frame[key].to_numpy()) for key in frame.columns}
             return frame[node.params.get("output", "macd")].to_numpy()
 
         if node.node_type == "bollinger_bands":

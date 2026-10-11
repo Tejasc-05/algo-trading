@@ -30,7 +30,7 @@ def view(session):
         'symbol': session.symbol, 'timeframe': session.timeframe, 'status': session.status,
         'max_notional': float(session.max_notional), 'loss_limit': float(session.loss_limit),
         'starting_equity': float(session.starting_equity), 'message': session.message,
-        'last_bar': session.last_bar, 'environment': 'binance_demo', 'leverage': 1}
+        'last_bar': session.last_bar, 'diagnostics': session.diagnostics, 'environment': 'binance_demo', 'leverage': 1}
 
 
 async def owned_session(db, user_id, session_id):

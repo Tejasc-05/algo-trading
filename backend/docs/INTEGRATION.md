@@ -58,12 +58,15 @@ Start paper trading with a saved strategy:
 {"strategy_id":"<saved-id>","symbol":"BTC/USDT","timeframe":"1h","starting_balance":10000}
 ```
 
-Paper accounts pin a strategy version. Restart an account to adopt a new version.
+Paper accounts pin a strategy version. Start a new account to adopt a new version; Resume retains the pinned version.
 `/simulate-fill` accepts an explicit test price and is a development simulation
 tool, not an authoritative market price source. It updates balances, positions
 and trades atomically, rejects duplicate settlement, and never sends real orders.
-Paper mode is spot only: sells require holdings and buys require cash including
-fees. Limit orders stay pending until their limit is reached. The worker settles
+Spot paper mode requires holdings for sells and cash including fees for buys.
+USDT futures paper mode supports explicit Open Long/Short/Close Position actions,
+isolated margin, configurable funding scenarios and approximate liquidation.
+See [PAPER_TRADING.md](PAPER_TRADING.md) for settings, limitations and API controls.
+Spot limit orders stay pending until their limit is reached. The worker settles
 pending orders and evaluates only closed candles. PostgreSQL row locks and
 persisted timestamps serialize repeated ticks; SQLite unit tests do not validate
 PostgreSQL's concurrency behavior.
@@ -77,7 +80,8 @@ it does not invent bots or live profit. Sentiment reports unavailable until a re
 provider is configured. Notifications start empty. Settings no longer claims a
 paid subscription or billing date. Landing-page illustrative content is retained.
 
-The paper page provides Start/Stop controls using saved strategies. Layout,
+The paper page provides account-scoped setup, Pause/Resume, Stop & Close,
+equity history and worker/algorithm diagnostics using saved strategies. Layout,
 styling and graph structures are retained. Errors and empty states are visible.
 The API client clears expired sessions; protected pages redirect to login.
 

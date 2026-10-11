@@ -172,7 +172,7 @@ async def test_tick_is_idempotent_per_closed_candle(client, auth_headers, db_ses
     account_id = await start_account(client, auth_headers)
     account = await db_session.get(PaperAccount, account_id)
     candles = make_dummy_candles(50)
-    candles.timestamp = pd.to_datetime(candles.timestamp, utc=True)
+    candles.timestamp = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("h") - pd.Timedelta(hours=1), periods=len(candles), freq="h")
     async def data(**kwargs):
         return candles
     monkeypatch.setattr("app.paper_trading.engine.fetch_latest_ohlcv", data)

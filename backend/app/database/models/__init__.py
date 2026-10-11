@@ -7,7 +7,7 @@ from app.database.models.base import Base, JSONVariant, TimestampMixin, metadata
 from app.database.models.user import User  # noqa: F401
 from app.database.models.strategy import Strategy, StrategyVersion  # noqa: F401
 from app.database.models.exchange_connection import ExchangeConnection  # noqa: F401
-from app.database.models.paper_trading import Order, PaperAccount, Trade  # noqa: F401
+from app.database.models.paper_trading import Order, PaperAccount, Trade, PaperEquitySnapshot  # noqa: F401
 from app.database.models.portfolio import Portfolio, Position  # noqa: F401
 from app.database.models.backtest import Backtest, BacktestResult  # noqa: F401
 from app.database.models.futures import DemoSession, DemoOrder  # noqa: F401
@@ -29,3 +29,4 @@ __all__ = [
     "Backtest",
     "BacktestResult",
 ]
+from app.database.models.sentiment import SentimentEvidence, SentimentReview  # noqa: F401

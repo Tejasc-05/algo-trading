@@ -38,8 +38,12 @@ npm run build
 
 Tests use SQLite, fake Redis and injected candles. Actual VectorBT and Backtrader packages are exercised. Docker/PostgreSQL migration checks are separate.
 
-Auth, immutable strategy versions, graph validation/evaluation, CCXT reads, backtesting adapters, transactional spot paper fills, closed-candle worker processing and Redis/WebSocket infrastructure are implemented. Unsupported sentiment providers report unavailable. Real trading cannot execute, including when the configuration flag is enabled.
+Auth, immutable strategy versions, graph validation/evaluation, CCXT reads, backtesting adapters, transactional spot/futures paper fills, isolated futures scenarios, account-scoped history and diagnostics, closed-candle worker processing and Redis/WebSocket infrastructure are implemented. Unsupported sentiment providers report unavailable. Real trading cannot execute, including when the configuration flag is enabled.
 
 Read [INTEGRATION.md](docs/INTEGRATION.md) for the frontend graph, endpoints, simulation conventions, event envelopes and remaining limitations. Read [TEAM_WORKFLOW.md](docs/TEAM_WORKFLOW.md) for four-person development boundaries.
 
+News sentiment defaults to key-free publisher RSS + local CPU FinBERT, with optional NewsAPI/hosted inference, with explicit feed delay, source evidence and Redis caching. Configure backend credentials using [SENTIMENT.md](docs/SENTIMENT.md). It does not feed trading orders; CryptoPanic/social integrations remain unavailable.
+
 Binance Futures demo sessions support owned, pinned strategy versions, explicit long/short/close actions, isolated 1x positions, exposure and loss limits, durable order reconciliation and exchange-held stop loss/take profit. Read [BINANCE_FUTURES_DEMO.md](docs/BINANCE_FUTURES_DEMO.md) for setup and acceptance checks. Authenticated exchange fills still require genuine demo credentials and acceptance testing; production execution remains disabled.
+
+Paper account controls, isolated futures simulation and known assumptions: [PAPER_TRADING.md](docs/PAPER_TRADING.md).

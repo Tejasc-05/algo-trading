@@ -44,6 +44,8 @@ The worker processes `running` sessions. `paused`/`needs_attention` sessions req
 
 All private endpoints are user-scoped. Keys are decrypted only in the transport and never returned. HTTP client debug logs are suppressed so signed request URLs are not logged. User-facing exchange failures omit raw response bodies and credentials.
 
+Verification reads balances from `/fapi/v3/account` and trading availability from `/fapi/v1/accountConfig`. V3 does not expose `canTrade`; an omitted flag must not be interpreted as a disabled account. An explicit configuration `canTrade: false` blocks activation, while a missing or malformed configuration flag reports unknown status and also blocks activation.
+
 ## Run and verify
 
 From `backend/`, run migrations and rebuild/start the API plus workers:
@@ -64,3 +66,37 @@ Real-money rollout still requires authenticated demo acceptance tests, longer-ru
 - [Binance USD-M general information and demo host](https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info)
 - [Order, conditional-order and reconciliation API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade)
 - [Account and position API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/account)
+
+## Why no trade? diagnostics
+
+Migration `0007_futures_diagnostics` adds a nullable JSON snapshot to each demo
+session. The existing user-scoped session responses include it; viewing or
+refreshing this data performs no exchange requests and cannot submit orders.
+The runner records a heartbeat, observed position, decision/blocking code and
+safe error message. Last candle evaluation is retained separately, including
+open/close times, next expected candle close, pinned strategy version, candle
+count/close, node outputs and entry/exit signals. MACD reports the configured
+periods and line/signal/histogram values for current and previous closed candles.
+Comparison/crossover/logic inputs and results come from the same engine evaluation
+that produced signals, rather than a second diagnostic evaluation. Missing or
+nonfinite warm-up values are serialized as null, not NaN or zero.
+
+The UI flags running-session snapshots older than 90 seconds. This is a display
+policy, not proof of worker failure. Duplicate candle checks update only the
+heartbeat/reconciliation context and retain the last evaluation; they do not
+re-evaluate or submit additional entries. Legacy sessions can show no evaluation
+until the next *new* closed candle is processed. Stop/resume and errors update the
+reason without claiming the previous indicator values were recomputed.
+
+Entry-limit diagnostics show observed mark price, rounded quantity, minimum
+notional, session cap and available margin (including the existing 5% buffer
+check). These are populated only when the runner reaches that check, and cleared
+on a new evaluation. Checks are observations, not authorization to force a trade.
+The last blocking error is retained until an evaluation or successful resume clears
+it. Confirm actual exchange exposure using reconciliation when order outcomes are
+unknown. Snapshot values are historical observations and not a live position feed.
+
+After applying migrations, rebuild/restart the API and futures demo worker so both
+can write/read snapshots. Avoid interrupting an active processing lease; if a
+worker crashes mid-tick, the existing lease expiry/reconciliation rules still apply.
+No additional API credentials are needed. Production execution stays disabled.

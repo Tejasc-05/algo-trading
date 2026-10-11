@@ -1,14 +1,16 @@
-import { motion } from 'framer-motion'
+import { SentimentValidation } from '@/components/SentimentValidation'
+import { useState } from 'react'
 import { Brain, ExternalLink, MessageCircle, Newspaper } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { Button } from '@/components/ui/button'
 import { useApi } from '@/hooks/useApi'
 import { api } from '@/lib/api'
 import { cn } from '@/utils/cn'
 
 function SentimentGauge({ value, label }: { value: number; label: string }) {
-  const color = value >= 60 ? 'text-success' : value >= 40 ? 'text-warning' : 'text-destructive'
+  const color = label === 'positive' ? 'text-success' : label === 'negative' ? 'text-destructive' : 'text-warning'
 
   return (
     <div className="text-center">
@@ -36,136 +38,64 @@ function SentimentGauge({ value, label }: { value: number; label: string }) {
   )
 }
 
-const sentimentBadge = {
-  positive: 'success' as const,
-  negative: 'destructive' as const,
-  neutral: 'secondary' as const,
-}
+const sentimentBadge = { positive: 'success', negative: 'destructive', neutral: 'secondary' } as const
 
 export function SentimentPage() {
-  const { data, loading, error } = useApi(() => api.sentiment.get('BTC'))
-  const sentimentData = { overall: data ? Math.round((data.score + 1) * 50) : 0,
-    positive: 0, neutral: 0, negative: 0, trend: data?.label ?? 'Unavailable', aiConfidence: data ? Math.round(data.confidence * 100) : 0 }
-  const newsItems: { id: string; title: string; summary: string; source: string; time: string; sentiment: keyof typeof sentimentBadge }[] = []
-  const socialPosts: { id: string; author: string; handle: string; content: string; likes: number; time: string; sentiment: keyof typeof sentimentBadge }[] = []
+  const [symbol, setSymbol] = useState('BTC')
+  const { data, loading, error, refetch } = useApi(() => api.sentiment.get(symbol), [symbol])
+  const { data: setup } = useApi(() => api.sentiment.status())
+  const configured = setup?.news_configured && setup?.model_configured
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Sentiment Analysis</h2>
-        <p className="text-sm text-muted-foreground">
-          AI-powered market sentiment from news, social media, and on-chain data
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">Sentiment Analysis</h2>
+          <p className="text-sm text-muted-foreground">Financial news headlines scored by FinBERT. Analysis only; no trading orders.</p>
+        </div>
+        <div className="flex items-end gap-3">
+          <label className="text-sm">Asset
+            <select aria-label="Sentiment asset" className="block bg-secondary border border-border rounded-md p-2 mt-1 min-h-11" value={symbol} onChange={event => setSymbol(event.target.value)}>
+              <option value="BTC">Bitcoin (BTC)</option><option value="ETH">Ethereum (ETH)</option>
+            </select>
+          </label>
+          <Button onClick={() => void refetch()} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</Button>
+        </div>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Brain className="h-4 w-4 text-primary" />
-              Market Sentiment
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {data ? <SentimentGauge value={sentimentData.overall} label={data.label} /> :
-              <p role={error ? 'alert' : undefined} className="text-sm text-muted-foreground py-8">{loading ? 'Loading sentiment…' : error || 'No sentiment available'}</p>}
-          </CardContent>
+      {setup && !configured && <Card><CardContent className="pt-6 text-sm space-y-2">
+        <p className="font-medium">News sentiment needs setup</p>
+        <p className="text-muted-foreground">Configure the news source and prepare FinBERT on the server (local model or hosted inference token). Never enter exchange API keys here.</p>
+        <p>{setup.provider === 'rss' ? 'Publisher RSS' : 'NewsAPI'}: {setup.news_configured ? 'Configured' : 'Not configured'} · FinBERT model: {setup.model_configured ? 'Configured' : 'Not configured'}</p>
+      </CardContent></Card>}
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {data?.warnings?.map(warning => <p key={warning} role="status" className="text-sm text-warning">{warning}; results use the available feed.</p>)}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" aria-busy={loading}>
+        <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Brain aria-hidden="true" className="h-4 w-4 text-primary" />Market Sentiment</CardTitle></CardHeader>
+          <CardContent>{data && !loading ? <><SentimentGauge value={Math.round((data.score + 1) * 50)} label={data.label} /><p className="text-xs text-muted-foreground text-center">0 = negative · 50 = balanced · 100 = positive</p></> : <p className="text-sm text-muted-foreground py-8">{loading ? 'Loading sentiment…' : 'No sentiment score available'}</p>}</CardContent>
         </Card>
-
-        <Card className="md:col-span-2">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">AI Confidence</CardTitle>
-            <Badge variant="secondary">{sentimentData.trend.toUpperCase()}</Badge>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-6">
-              <div className="flex-1">
-                <div className="flex justify-between mb-2">
-                  <span className="text-sm text-muted-foreground">Model Confidence</span>
-                  <span className="text-2xl font-bold text-primary">{data ? `${sentimentData.aiConfidence}%` : '—'}</span>
-                </div>
-                {data && <Progress value={sentimentData.aiConfidence} className="h-3" />}
-                <p className="text-xs text-muted-foreground mt-3">
-                  Sentiment appears when a configured provider supplies a result.
-                </p>
-              </div>
-            </div>
+        <Card className="md:col-span-2"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Headline Classification</CardTitle><Badge variant="secondary">{data && !loading ? data.label.toUpperCase() : 'UNAVAILABLE'}</Badge></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Aggregate label probability</span><span className="text-2xl font-bold text-primary">{data && !loading ? `${Math.round(data.confidence * 100)}%` : '—'}</span></div>
+            {data && !loading && <><Progress value={data.confidence * 100} className="h-3" /><p className="text-sm">{data.articles.length} headlines · Positive: {data.counts.positive} · Neutral: {data.counts.neutral} · Negative: {data.counts.negative}</p>
+              <p className="text-xs text-muted-foreground">{data.provider === 'rss' ? 'Publisher RSS' : 'NewsAPI'} · {data.model} ({data.inference_mode}) · {data.window_hours}-hour sample · Feed delay: {data.feed_delay_hours}h · Computed {new Date(data.as_of).toLocaleString()}{data.cached ? ' · Cached (up to 5 minutes)' : ''}</p></>}
+            <p className="text-sm text-muted-foreground">Model probabilities describe headline wording, not the chance of a price move or a profitable trade. FinBERT is a financial-text model; crypto-specific accuracy has not been validated.</p>
           </CardContent>
         </Card>
       </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Newspaper className="h-4 w-4" />
-              News Feed
-            </CardTitle>
-          </CardHeader>
+        <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Newspaper aria-hidden="true" className="h-4 w-4" />News Feed</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">News feed is not configured.</p>
-            {newsItems.map((item, i) => (
-              <motion.div
-                key={item.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer group"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <Badge variant={sentimentBadge[item.sentiment]} className="text-[10px] shrink-0">
-                    {item.sentiment}
-                  </Badge>
-                  <ExternalLink className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <h4 className="text-sm font-medium mb-1">{item.title}</h4>
-                <p className="text-xs text-muted-foreground mb-2">{item.summary}</p>
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span>{item.source}</span>
-                  <span>·</span>
-                  <span>{item.time}</span>
-                </div>
-              </motion.div>
-            ))}
+            {(!data || loading) && <p className="text-sm text-muted-foreground">{loading ? 'Loading news…' : 'No news evidence available. Configure the source or retry.'}</p>}
+            {!loading && data?.articles.map(item => <a key={item.id} href={item.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 focus-visible:outline focus-visible:outline-primary transition-colors">
+              <div className="flex justify-between gap-2 mb-2"><Badge variant={sentimentBadge[item.label]}>{item.label}</Badge><ExternalLink aria-hidden="true" className="h-4 w-4 text-muted-foreground" /></div>
+              <h4 className="text-sm font-medium mb-1">{item.title}<span className="sr-only"> (opens in new tab)</span></h4>
+              {item.summary && <p className="text-sm text-muted-foreground mb-2">{item.summary}</p>}
+              <p className="text-xs text-muted-foreground">{item.source} · {new Date(item.published_at).toLocaleString()}</p>
+            </a>)}
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <MessageCircle className="h-4 w-4" />
-              Social Feed
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">Social feed is not configured.</p>
-            {socialPosts.map((post, i) => (
-              <motion.div
-                key={post.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="p-4 rounded-lg bg-secondary/30"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <span className="text-sm font-medium">{post.author}</span>
-                    <span className="text-xs text-muted-foreground ml-2">{post.handle}</span>
-                  </div>
-                  <Badge variant={sentimentBadge[post.sentiment]} className="text-[10px]">
-                    {post.sentiment}
-                  </Badge>
-                </div>
-                <p className="text-sm mb-2">{post.content}</p>
-                <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                  <span>{post.likes.toLocaleString()} likes</span>
-                  <span>·</span>
-                  <span>{post.time}</span>
-                </div>
-              </motion.div>
-            ))}
-          </CardContent>
-        </Card>
+        <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><MessageCircle aria-hidden="true" className="h-4 w-4" />Social Feed</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Social sources are not integrated yet. News sentiment excludes social posts and on-chain data.</p></CardContent></Card>
       </div>
+      <SentimentValidation key={symbol} symbol={symbol} quality={loading ? undefined : data?.quality} revision={`${data?.as_of}:${loading}:${error}`} />
     </div>
   )
 }

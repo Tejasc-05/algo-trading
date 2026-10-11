@@ -41,6 +41,10 @@ class Position(Base, TimestampMixin):
     stop_loss: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
     take_profit: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
     last_mark_price: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
+    margin_balance: Mapped[float] = mapped_column(Numeric(20, 8), default=0, server_default="0", nullable=False)
+    entry_fee: Mapped[float] = mapped_column(Numeric(20, 8), default=0, server_default="0", nullable=False)
+    funding_paid: Mapped[float] = mapped_column(Numeric(20, 8), default=0, server_default="0", nullable=False)
+    last_funding_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     portfolio: Mapped["Portfolio"] = relationship(back_populates="positions")

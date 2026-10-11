@@ -26,9 +26,15 @@ services:
       retries: 10
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_LOCAL_FINBERT: "1"
     env_file:
       - .env
+    environment:
+      HF_HOME: /models
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
     ports:
       - "8000:8000"
     depends_on:
@@ -38,6 +44,7 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      - finbert_cache:/models
 
   paper_worker:
     build: .
@@ -65,3 +72,4 @@ services:
 
 volumes:
   postgres_data:
+  finbert_cache:

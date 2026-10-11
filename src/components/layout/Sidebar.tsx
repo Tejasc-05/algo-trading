@@ -37,7 +37,7 @@ export function Sidebar() {
       initial={false}
       animate={{ width: sidebarCollapsed ? 72 : 260 }}
       transition={{ duration: 0.25, ease: 'easeInOut' }}
-      className="fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-border glass-strong"
+      className="fixed left-0 top-0 z-40 hidden lg:flex h-screen flex-col border-r border-border glass-strong"
     >
       <div className="flex h-16 items-center gap-3 px-4 border-b border-border">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-purple-600">
