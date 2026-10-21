@@ -94,7 +94,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             location = ".".join(str(part) for part in first.get("loc", []) if part != "body")
             message = f"{location}: {first.get('msg')}" if location else first.get("msg", message)
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=422,
             content=_envelope("VALIDATION_ERROR", message),
         )
 

@@ -156,6 +156,9 @@ async def simulate_fill_endpoint(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.config import get_settings
+    if get_settings().environment != 'development':
+        raise AppError('SIMULATION_HELPER_DISABLED', 'Caller-supplied fill prices are available only in development.', 403)
     trade = await settle_order(db, payload.order_id, current_user.id, payload.current_price)
     order = await db.get(Order, trade.order_id)
     account = await owned_account(db, current_user.id, order.paper_account_id)

@@ -1,6 +1,8 @@
+import { useLocation } from 'react-router-dom'
 import { StrategyCanvas } from '@/features/strategy-builder/StrategyCanvas'
 
 export function StrategyBuilderPage() {
+  const location = useLocation()
   return (
     <div className="space-y-4">
       <div>
@@ -9,7 +11,7 @@ export function StrategyBuilderPage() {
           Drag nodes from the library to design your trading algorithm visually
         </p>
       </div>
-      <StrategyCanvas />
+      <StrategyCanvas key={location.key} />
     </div>
   )
 }

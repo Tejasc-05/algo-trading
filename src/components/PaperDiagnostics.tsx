@@ -14,8 +14,8 @@ export function PaperDiagnostics({ account }: { account: any }) {
   const nodes: DemoNodeDiagnostic[] = evaluation?.nodes ?? []
   const heartbeat = diagnostic?.worker_checked_at
   const stale = account.is_active && (!diagnostic?.checked_at || Date.now() - Date.parse(heartbeat || diagnostic.checked_at) > 90000)
-  return <section aria-label="Why no paper trade?" className="rounded-lg bg-secondary/30 p-4 space-y-3">
-    <h3 className="text-sm font-semibold">Why no trade?</h3>
+  return <section aria-label="Paper strategy status" className="rounded-lg bg-secondary/30 p-4 space-y-3">
+    <h3 className="text-sm font-semibold">Strategy status</h3>
     <p role="status" className="text-sm">{diagnostic?.reason ?? 'Waiting for the worker’s first check.'}</p>
     <p className="text-xs text-muted-foreground">Last worker check: {date(heartbeat)} · {diagnostic?.reason_code ?? 'WAITING_FIRST_CHECK'}</p>
     {stale && <p className="text-sm text-warning">No recent worker check. Make sure the paper worker is running; this account’s data may be out of date.</p>}

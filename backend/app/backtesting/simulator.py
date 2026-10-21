@@ -53,30 +53,35 @@ def simulate_strategy_on_ohlcv(
         {"timestamp": _timestamp(df.iloc[0]["timestamp"]), "value": round(cash, 2)}
     ]
 
-    def close_position(ts: datetime, price: float, side: str) -> None:
-        nonlocal cash, position_qty, position_side, stop_loss, take_profit
+    def close_position(ts: datetime, price: float, side: str, quantity: float | None = None) -> None:
+        nonlocal cash, position_qty, position_side, stop_loss, take_profit, entry_fee
         if position_qty <= 0 or position_side is None:
             return
-        fee = price * position_qty * fees_pct
+        closed_qty = position_qty if quantity is None else min(quantity, position_qty)
+        allocated_entry_fee = entry_fee * closed_qty / position_qty
+        fee = price * closed_qty * fees_pct
         if position_side == "long":
-            pnl = (price - entry_price) * position_qty - fee - entry_fee
-            cash += price * position_qty - fee
+            pnl = (price - entry_price) * closed_qty - fee - allocated_entry_fee
+            cash += price * closed_qty - fee
         else:
-            pnl = (entry_price - price) * position_qty - fee
-            cash -= price * position_qty + fee
+            pnl = (entry_price - price) * closed_qty - fee - allocated_entry_fee
+            cash -= price * closed_qty + fee
         trade_history.append(
             {
                 "timestamp": ts,
                 "side": side,
                 "price": round(price, 8),
-                "quantity": round(position_qty, 8),
+                "quantity": round(closed_qty, 8),
                 "pnl": round(pnl, 2),
             }
         )
-        position_qty = 0.0
-        position_side = None
-        stop_loss = None
-        take_profit = None
+        position_qty -= closed_qty
+        entry_fee -= allocated_entry_fee
+        if position_qty <= 1e-12:
+            position_qty = 0.0
+            position_side = None
+            stop_loss = None
+            take_profit = None
 
     for i in range(len(df)):
         row = df.iloc[i]
@@ -95,6 +100,13 @@ def simulate_strategy_on_ohlcv(
             }
         )
 
+        actions = [s for s in signals if s.action in {'buy', 'sell'}]
+        risk_actions = [s.action for s in signals if s.action in {'set_stop_loss', 'set_take_profit'}]
+        if len(actions) > 1 or len(risk_actions) != len(set(risk_actions)):
+            signals = []
+        # Risk nodes can precede action nodes in a valid graph. Attach the
+        # triggered protection after entries, independent of canvas ordering.
+        signals = sorted(signals, key=lambda s: s.action in {'set_stop_loss', 'set_take_profit'})
         for signal in signals:
             params = dict(signal.params)
             risk_pct = _risk_percent(params)
@@ -123,7 +135,7 @@ def simulate_strategy_on_ohlcv(
                         stop_loss = entry_price * (1 - risk_pct / 100.0)
             elif signal.action == "sell" and position_side != "short":
                 if position_side == "long":
-                    close_position(ts, slipped_sell, "sell")
+                    close_position(ts, slipped_sell, "sell", float(params.get('amount', 0.1)))
             elif signal.action == "set_stop_loss" and position_side and position_qty > 0:
                 pct = _risk_percent(params)
                 if pct is not None:
@@ -165,9 +177,9 @@ def simulate_strategy_on_ohlcv(
     last_ts = _timestamp(df.iloc[-1]["timestamp"])
     last_price = float(df.iloc[-1]["close"])
     if position_side == "long":
-        close_position(last_ts, last_price, "sell")
+        close_position(last_ts, last_price * (1 - slippage_pct), "sell")
     elif position_side == "short":
-        close_position(last_ts, last_price, "buy")
+        close_position(last_ts, last_price * (1 + slippage_pct), "buy")
 
     equity_curve[-1]["value"] = round(cash, 2)
     metrics = compute_metrics(equity_curve, trade_history, starting_capital)

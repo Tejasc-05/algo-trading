@@ -1,7 +1,7 @@
 """Exchange connection endpoints. Credentials are always encrypted at rest
 (see app.core.security.encrypt_secret) and never echoed back in a response.
 """
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user, get_db
@@ -18,11 +18,17 @@ router = APIRouter(prefix="/exchanges", tags=["exchanges"])
 @router.post("/connect", response_model=ExchangeConnectionOut, status_code=status.HTTP_201_CREATED)
 async def connect_exchange(
     payload: ExchangeConnectRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeConnectionOut:
     """Connect an exchange by storing encrypted credentials."""
     settings = get_settings()
+    if not payload.is_testnet:
+        from app.auth.account_security import require_live_user
+        await require_live_user(db, request, current_user)
+        if payload.exchange_name.lower() not in {'binance', 'binanceusdm'}:
+            raise AppError('LIVE_EXCHANGE_UNSUPPORTED', 'Production verification currently supports Binance USD-M futures only.', 422)
 
     # Validate exchange is supported by CCXT
     import ccxt
@@ -91,6 +97,7 @@ async def list_connections(
 @router.delete("/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect_exchange(
     connection_id: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -106,11 +113,19 @@ async def disconnect_exchange(
     if connection is None:
         raise AppError(code="NOT_FOUND", message="Exchange connection not found", status_code=404)
 
+    if not connection.is_testnet:
+        from app.auth.account_security import require_live_user
+        await require_live_user(db, request, current_user)
+    from app.database.models.live import LiveAccount, LiveRun
+    account = await db.scalar(select(LiveAccount).where(LiveAccount.connection_id == connection.id).with_for_update())
+    if account and await db.scalar(select(LiveRun.id).where(
+            LiveRun.account_id == account.id, LiveRun.status != 'stopped').limit(1)):
+        raise AppError('LIVE_RUN_ACTIVE', 'Close and reconcile the live run before removing its credentials.', 409)
     from app.database.models.futures import DemoSession
     sessions = list((await db.execute(select(DemoSession).where(DemoSession.connection_id == connection.id))).scalars())
     if any(session.status != 'stopped' for session in sessions):
         raise AppError('DEMO_SESSION_ACTIVE', 'Stop and close the futures demo session before removing this connection.', 409)
-    if sessions:
+    if sessions or account:
         # Retain the reference for the audit ledger, but erase credentials.
         connection.is_active = False
         connection.api_key_encrypted = encrypt_secret('')

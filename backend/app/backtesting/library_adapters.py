@@ -86,7 +86,8 @@ def backtrader_simulate(graph, candles, **options):
             if self.pending is not None:
                 return
             signals = executor.evaluate({"candles": df.iloc[:i], "sentiment": None})
-            action = next((s for s in signals if s.action in {"buy", "sell"}), None)
+            actions = [s for s in signals if s.action in {"buy", "sell"}]
+            action = actions[0] if len(actions) == 1 else None
             if action is None:
                 return
             amount = float(action.params.get("amount", 0.1))

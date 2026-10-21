@@ -27,6 +27,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+!.env.production.example
 .venv/
 venv/
 __pycache__/
@@ -35,6 +36,9 @@ __pycache__/
 *.sqlite
 *.sqlite3
 *.pyc
+.coverage*
+coverage.xml
+htmlcov/
 
 # Browser QA artifacts and local scratch scripts
 .playwright-cli/

@@ -14,6 +14,7 @@ from app.schemas.sentiment import SentimentOut, ReviewInput
 from app.database.models.sentiment import SentimentReview, SentimentEvidence
 from app.sentiment.validation import capture, review_query, serialize, metrics
 from app.sentiment.rss import FEEDS
+from app.sentiment.news_selection import POLICY, aggregate_news
 from app.sentiment.quality import check_sample
 from app.sentiment.providers import get_sentiment_provider, normalize_symbol
 from app.sentiment.local_model import local_model_ready, REVISION
@@ -40,7 +41,11 @@ async def source_health(symbol: str, user=Depends(get_current_user), redis=Depen
     try:
         cached = await redis.get(f'sentiment:health:rss:{symbol}')
         if cached:
-            return {'sources': json.loads(cached), 'message': 'Reachability does not verify article claims. Checks run when the news cache refreshes.'}
+            retained = {item['source']: item for item in json.loads(cached)}
+            sources = [retained[name] if name in retained and retained[name].get('feed_url') == url else
+                {'source':name, 'feed_url':url, 'status':'unknown', 'checked_at':None,
+                 'matching_headlines':None, 'newest_published_at':None} for name,url in FEEDS.items()]
+            return {'sources': sources, 'message': 'Reachability does not verify article claims. Checks run when the news cache refreshes.'}
     except (RedisError, ValueError):
         pass
     return {'sources': [{'source': name, 'feed_url': url, 'status': 'unknown', 'checked_at': None,
@@ -99,12 +104,18 @@ async def get_sentiment(symbol: str, provider: str | None = Query(None),
     settings = get_settings()
     # Credential fingerprint invalidates cached evidence when operator changes providers' keys.
     fingerprint = hashlib.sha256(f'{settings.newsapi_api_key}:{settings.hf_token}'.encode()).hexdigest()[:16]
-    key = f'sentiment:v3:{provider}:{symbol}:{settings.sentiment_inference_mode}:{REVISION}:{settings.newsapi_delay_hours}:{settings.rss_news_window_hours}:{fingerprint}'
+    key = f'sentiment:v4:{POLICY}:{provider}:{symbol}:{settings.sentiment_inference_mode}:{REVISION}:{settings.newsapi_delay_hours}:{settings.rss_news_window_hours}:{fingerprint}'
     async with _locks[symbol]:
         try:
             cached = await redis.get(key)
             if cached:
                 result = SentimentOut.model_validate_json(cached).model_copy(update={'cached': True})
+                if result.provider == 'rss' and result.aggregation.get('method') == POLICY:
+                    result.aggregation = aggregate_news([item.model_dump() for item in result.articles],
+                        datetime.now(timezone.utc), result.aggregation.get('deduplicated_headlines', 0))
+                    fresh = result.aggregation['fresh']
+                    result.score, result.label, result.confidence = fresh['score'], fresh['label'], fresh['confidence']
+                    result.counts, result.probabilities = fresh['counts'], fresh['probabilities']
                 result.quality = check_sample(result)
                 await capture(db, user.id, result)
                 return result

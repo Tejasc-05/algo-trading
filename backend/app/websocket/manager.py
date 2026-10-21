@@ -85,7 +85,7 @@ async def websocket_endpoint(webSocket: WebSocket) -> None:
 
     from app.core.config import get_settings
     origin = webSocket.headers.get("origin")
-    if origin and origin not in get_settings().cors_origins_list:
+    if (origin and origin not in get_settings().cors_origins_list) or (not origin and get_settings().environment == 'production'):
         await webSocket.close(code=1008)
         return
     user = await get_user_from_websocket(webSocket)
@@ -106,7 +106,13 @@ async def websocket_endpoint(webSocket: WebSocket) -> None:
 
         # Keep connection alive
         while True:
-            await webSocket.receive_text()
+            try:
+                await asyncio.wait_for(webSocket.receive_text(), timeout=30)
+            except TimeoutError:
+                pass
+            if await get_user_from_websocket(webSocket) is None:
+                await webSocket.close(code=1008)
+                break
 
     except WebSocketDisconnect:
         manager.disconnect(user.id, webSocket)
@@ -126,6 +132,10 @@ async def _relay_redis_to_websocket(user_id: str, websocket: WebSocket, redis_me
     """Relay Redis pub/sub messages to the WebSocket client."""
     try:
         async for message in redis_messages:
+            from app.api.dependencies import get_user_from_websocket
+            if await get_user_from_websocket(websocket) is None:
+                await websocket.close(code=1008)
+                return
             await websocket.send_text(message)
     finally:
         from contextlib import suppress

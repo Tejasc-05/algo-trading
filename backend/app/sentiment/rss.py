@@ -14,9 +14,11 @@ from app.sentiment.providers import normalize_symbol
 from app.sentiment.local_model import LocalFinBERTScorer, REVISION
 from app.sentiment.scoring import FinBERTScorer, MODEL
 from app.sentiment.service import SentimentProvider, SentimentResult
+from app.sentiment.news_selection import select_stories, aggregate_news
 
 FEEDS = {'Cointelegraph': 'https://cointelegraph.com/rss',
-    'CoinDesk': 'https://www.coindesk.com/arc/outboundfeeds/rss/'}
+    'CoinDesk': 'https://www.coindesk.com/arc/outboundfeeds/rss',
+    'Decrypt': 'https://decrypt.co/feed'}
 MAX_BYTES = 500_000
 
 
@@ -86,24 +88,19 @@ class RSSSentimentProvider(SentimentProvider):
         warnings = [warning for _,warning in results if warning]
         if len(warnings) == len(FEEDS):
             raise AppError('SENTIMENT_NEWS_UNAVAILABLE', 'Publisher feeds are unavailable. Retry later.', 503)
-        articles = []
-        seen = set()
-        for item in sorted([item for rows,_ in results for item in rows], key=lambda item:item['published_at'], reverse=True):
-            fingerprint = item['title'].casefold()
-            if fingerprint not in seen:
-                seen.add(fingerprint)
-                articles.append(item)
-        articles = articles[:10]
+        articles, removed = select_stories([item for rows,_ in results for item in rows])
         if not articles:
             raise AppError('SENTIMENT_NO_RECENT_NEWS', f'No matching headlines in the publisher feeds during the last {self.window_hours} hours. No score generated.', 503)
         scored = await self.scorer.score([item['title'] for item in articles])
-        aggregate = {label:sum(item[label] for item in scored)/len(scored) for label in ('positive','negative','neutral')}
-        counts = dict.fromkeys(aggregate,0)
         for item, values in zip(articles,scored,strict=True):
             label = max(values,key=values.get)
-            counts[label] += 1
             item.update(label=label,score=values['positive']-values['negative'],confidence=values[label],probabilities=values)
-        label = max(aggregate,key=aggregate.get)
-        return SentimentResult(symbol=symbol,score=aggregate['positive']-aggregate['negative'],label=label,
-            confidence=aggregate[label],as_of=now,provider='rss',model=MODEL, model_revision=REVISION if self.mode == 'local' else 'hosted-unpinned',articles=articles,counts=counts,
-            probabilities=aggregate,feed_delay_hours=0,inference_mode=self.mode,warnings=warnings,window_hours=self.window_hours)
+        aggregation = aggregate_news(articles, now, removed)
+        fresh = aggregation['fresh']
+        if not fresh['headline_count']:
+            warnings.append('No headlines within 24 hours; current sentiment is unavailable. Older news is context only.')
+        elif fresh['headline_count'] < 3 or fresh['publisher_count'] < 2:
+            warnings.append('Fresh coverage is limited: fewer than three distinct headlines or two publishers within 24 hours.')
+        return SentimentResult(symbol=symbol,score=fresh['score'],label=fresh['label'],
+            confidence=fresh['confidence'],as_of=now,provider='rss',model=MODEL, model_revision=REVISION if self.mode == 'local' else 'hosted-unpinned',articles=articles,counts=fresh['counts'],
+            probabilities=fresh['probabilities'],aggregation=aggregation,feed_delay_hours=0,inference_mode=self.mode,warnings=warnings,window_hours=self.window_hours)

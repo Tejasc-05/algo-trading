@@ -85,6 +85,16 @@ equity history and worker/algorithm diagnostics using saved strategies. Layout,
 styling and graph structures are retained. Errors and empty states are visible.
 The API client clears expired sessions; protected pages redirect to login.
 
+The navbar search reads the authenticated user's saved strategy summaries.
+Selecting one fetches its latest saved graph and opens it in Strategy Builder;
+unsaved builder changes require confirmation before replacement. Pair results
+are shortcuts that prefill the new Paper Trading account symbol, including
+explicit `BASE/QUOTE` searches; they are not a live exchange market catalogue
+and do not start trading. Page results navigate directly. Arrow keys/Enter,
+Escape, Ctrl/Command+K and a mobile search button are supported. Search errors
+and empty results are visible; logout clears the query.
+
+
 ## WebSocket
 
 Connect to `/ws` with subprotocols `['algoflow', accessToken]`. Tokens stay out of
@@ -133,3 +143,7 @@ before live execution is added. Backtests do not establish future profitability.
 
 Library API references: [VectorBT](https://vectorbt.dev/api/portfolio/base/),
 [Backtrader](https://www.backtrader.com/docu/strategy/).
+
+Saving from Strategy Builder opens a name dialog prefilled with the current strategy name. Confirming validates and saves the actual graph, then refreshes My Saved Strategies and selects the saved entry. Cancel preserves the draft; validation and API errors remain in the dialog. Saving an already loaded strategy creates another version of that owned strategy rather than a duplicate strategy.
+
+Auth pages now use email/password only. Password recovery is implemented via expiring single-use links and configured SMTP; see [PASSWORD_RESET.md](PASSWORD_RESET.md). The API applies migration 0009 at startup. External inbox delivery requires SMTP credentials; local testing can use the optional Mailpit profile.

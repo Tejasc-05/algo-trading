@@ -1,0 +1,8 @@
+.git
+node_modules
+work
+dist
+.playwright-cli
+backend
+.env
+.env.*

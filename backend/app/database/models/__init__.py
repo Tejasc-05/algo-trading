@@ -30,3 +30,8 @@ __all__ = [
     "BacktestResult",
 ]
 from app.database.models.sentiment import SentimentEvidence, SentimentReview  # noqa: F401
+
+from app.database.models.password_reset import PasswordResetToken  # noqa: F401
+from app.database.models.browser_session import BrowserSession
+from app.database.models.account_security import AccountSecurity, EmailVerificationToken
+from app.database.models.live import LiveAccount, LiveRun, LiveOrder, LiveEvent

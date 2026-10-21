@@ -14,6 +14,7 @@ ParamValue = str | float | int
 
 
 class ReactFlowPosition(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     x: float = 0
     y: float = 0
 

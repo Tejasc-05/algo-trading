@@ -1,17 +1,23 @@
-import { Bell, Circle, Search } from 'lucide-react'
+import { Bell, Circle } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
+import { GlobalSearch } from '@/components/layout/GlobalSearch'
 import { useAppStore } from '@/store/useAppStore'
 import { cn } from '@/utils/cn'
+import { Button } from '@/components/ui/button'
+import { api } from '@/lib/api'
+import { useState } from 'react'
+import { redirectToLogin } from '@/lib/session'
 
 interface TopNavbarProps {
   title?: string
 }
 
 export function TopNavbar({ title }: TopNavbarProps) {
-  const { sidebarCollapsed, marketOpen, user, notifications, searchTerm, setSearchTerm } = useAppStore()
+  const { sidebarCollapsed, marketOpen, user, notifications } = useAppStore()
   const unreadCount = notifications.filter((n) => !n.read).length
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
 
   return (
     <header
@@ -32,20 +38,13 @@ export function TopNavbar({ title }: TopNavbarProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <div className="relative hidden md:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Search strategies, pairs..."
-            className="w-64 pl-9 h-9 bg-secondary/30"
-          />
-          {searchTerm && (
-            <span className="absolute -bottom-5 left-0 text-[10px] text-muted-foreground">
-              {searchTerm.length > 0 ? `Filtering for: ${searchTerm}` : ''}
-            </span>
-          )}
-        </div>
+        <GlobalSearch />
+        <Button variant="ghost" size="sm" disabled={signingOut} onClick={async () => {
+          setSigningOut(true); setSignOutError('')
+          try { await api.auth.logout(); useAppStore.getState().logout(); redirectToLogin() }
+          catch { setSignOutError('Sign out failed. Try again.'); setSigningOut(false) }
+        }}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>
+        {signOutError && <span role="alert" className="text-xs text-destructive">{signOutError}</span>}
 
         <button className="relative rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer">
           <Bell className="h-5 w-5" />

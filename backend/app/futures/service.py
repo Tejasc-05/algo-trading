@@ -46,7 +46,7 @@ async def verify_connection(adapter):
     config = await adapter.request('GET', '/fapi/v1/accountConfig', signed=True)
     mode = await adapter.request('GET', '/fapi/v1/positionSide/dual', signed=True)
     multi = await adapter.request('GET', '/fapi/v1/multiAssetsMargin', signed=True)
-    if mode.get('dualSidePosition') or multi.get('multiAssetsMargin'):
+    if mode.get('dualSidePosition') is not False or multi.get('multiAssetsMargin') is not False:
         raise AppError('DEMO_ACCOUNT_MODE', 'Use one-way position mode and single-asset USDT margin in a dedicated demo account.', 422)
     if config.get('canTrade') is False:
         raise AppError('DEMO_TRADING_UNAVAILABLE', 'Binance demo account is not enabled for trading.', 422)
@@ -131,8 +131,7 @@ async def reconcile(db, adapter, session):
             await db.commit()
         except DemoRequestError:
             # Not found is NOT permission to blindly resubmit an unknown order.
-            if order.state == 'SENDING':
-                order.state = 'UNKNOWN'
+            order.state = 'UNKNOWN'
             await db.commit()
     if any(order.state in UNRESOLVED for order in orders):
         raise AppError('DEMO_RECONCILIATION_REQUIRED', 'An order outcome is unknown. Reconcile before any further entry.', 409)
@@ -216,7 +215,7 @@ async def protect(db, adapter, session, entry, row):
             {'algoType': 'CONDITIONAL', 'symbol': session.symbol, 'side': 'SELL' if qty > 0 else 'BUY',
              'type': 'STOP_MARKET' if role == 'STOP' else 'TAKE_PROFIT_MARKET', 'triggerPrice': str(trigger),
              'closePosition': 'true', 'positionSide': 'BOTH', 'workingType': 'MARK_PRICE'})
-        if order.state in {'REJECTED', 'UNKNOWN', 'SENDING', 'CANCELED', 'CANCELLED', 'EXPIRED'}:
+        if order.state != 'NEW':
             raise AppError('DEMO_PROTECTION_FAILED', 'Protection could not be confirmed; close the demo position.', 409)
 
 
@@ -260,7 +259,8 @@ async def run_tick(db, session, stop=False, resume=False):
             try:
                 await protect(db, adapter, session, latest_entry, row)
             except AppError:
-                await flatten(db, adapter, session, orders, 'protection-failure:' + latest_entry.client_id)
+                all_orders = list((await db.execute(select(DemoOrder).where(DemoOrder.session_id == session.id))).scalars())
+                await flatten(db, adapter, session, all_orders, 'protection-failure:' + latest_entry.client_id)
                 raise AppError('DEMO_PROTECTION_FAILED', 'Protection failed; demo position closed and session paused.', 409) from None
         else:
             await cleanup_protection(db, adapter, session, orders)

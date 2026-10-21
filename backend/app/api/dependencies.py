@@ -23,9 +23,17 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    from app.auth.sessions import cookie_name, resolve_session
+    raw = request.cookies.get(cookie_name())
+    if raw:
+        user, _ = await resolve_session(db, raw)
+        return user
+    if get_settings().environment == 'production':
+        raise UnauthorizedError('Sign in using a browser session')
     if credentials is None:
         raise UnauthorizedError("Missing bearer token")
 
@@ -36,12 +44,25 @@ async def get_current_user(
 
     user_id = payload.get("sub")
     user = await UserRepository(db).get(user_id) if user_id else None
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or payload.get("ver", 0) != user.auth_version:
         raise UnauthorizedError("User not found or inactive")
     return user
 
 
 async def get_user_from_websocket(websocket: Request | Any) -> User | None:
+    from app.auth.sessions import cookie_name, resolve_session
+    cookies = getattr(websocket, 'cookies', {})
+    raw = cookies.get(cookie_name())
+    if raw:
+        from app.database.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            try:
+                user, _ = await resolve_session(db, raw)
+                return user
+            except UnauthorizedError:
+                return None
+    if get_settings().environment == 'production':
+        return None
     token = websocket.query_params.get("token")
     if not token:
         auth = websocket.headers.get("authorization")
@@ -66,7 +87,7 @@ async def get_user_from_websocket(websocket: Request | Any) -> User | None:
     from app.database.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         user = await UserRepository(db).get(user_id)
-        if user and user.is_active:
+        if user and user.is_active and payload.get("ver", 0) == user.auth_version:
             return user
     return None
 

@@ -13,7 +13,7 @@ MAX_AGE_HOURS = 24
 MIN_FRESH_HEADLINES = 3
 MIN_CONFIDENCE = .60
 MIN_MARGIN = .15
-RSS_HOSTS = {'Cointelegraph': 'cointelegraph.com', 'CoinDesk': 'coindesk.com'}
+RSS_HOSTS = {'Cointelegraph': 'cointelegraph.com', 'CoinDesk': 'coindesk.com', 'Decrypt': 'decrypt.co'}
 
 
 def canonical_url(value):
@@ -27,14 +27,20 @@ def check_sample(result, now=None):
     reasons = {item.id: [] for item in result.articles}
     seen_titles, seen_urls = {}, {}
     stale = duplicates = uncertain = invalid = relevance = provenance = 0
+    separated = result.provider == 'rss' and getattr(result, 'aggregation', {}).get('method') == 'recency-v1'
+    invalid_times = 0
     fresh = 0
+    fresh_sources = set()
     asset = re.compile(r'\b(bitcoin|btc)\b' if result.symbol == 'BTC' else r'\b(ethereum|ether|eth)\b', re.I)
     for item in result.articles:
         flags = reasons[item.id]
         if item.published_at.tzinfo is None or item.published_at > now or now-item.published_at > timedelta(hours=MAX_AGE_HOURS):
-            flags.append('Publication time is missing a timezone, in the future, or older than 24 hours.'); stale += 1
+            invalid_time = item.published_at.tzinfo is None or item.published_at > now
+            invalid_times += int(invalid_time)
+            flags.append('Older context only; excluded from recent sentiment.' if separated and not invalid_time else 'Publication time is missing a timezone, in the future, or older than 24 hours.'); stale += 1
         else:
             fresh += 1
+            fresh_sources.add(item.source)
         title_key = ' '.join(re.findall(r'\w+', item.title.casefold()))
         url_key = canonical_url(item.url)
         previous = seen_titles.get(title_key) or seen_urls.get(url_key)
@@ -66,21 +72,21 @@ def check_sample(result, now=None):
     def check(key, failures, good, attention):
         return {'key': key, 'status': 'attention' if failures else 'pass', 'message': attention if failures else good}
     checks = [
-        check('freshness', stale, 'All selected headlines are within 24 hours.', f'{stale} headlines have stale or invalid publication times.'),
+        check('freshness', invalid_times if separated else stale, 'Recent sentiment excludes older context.' if separated else 'All selected headlines are within 24 hours.', f'{invalid_times if separated else stale} headlines have stale or invalid publication times.'),
         check('duplicates', duplicates, 'No repeated titles or URLs in the selected sample.', f'{duplicates} duplicate entries found in the selected sample.'),
         check('asset_relevance', relevance, 'Selected asset appears in each headline.', f'{relevance} headlines do not explicitly mention the selected asset.'),
         check('publisher_links', provenance, 'Article links match HTTPS publisher-domain checks.', f'{provenance} article links need provenance review.'),
         check('probabilities', invalid, 'Probability distributions and scores are consistent.', f'{invalid} distributions or scores are missing or invalid.'),
         check('uncertainty', uncertain, 'No scores triggered the uncertainty policy.', f'{uncertain} headlines have uncertain model scores.'),
-        check('coverage', fresh < MIN_FRESH_HEADLINES or sources < 2, 'At least three fresh headlines and two publishers are represented.', f'{fresh} fresh headlines across {sources} publishers; coverage is limited.'),
+        check('coverage', fresh < MIN_FRESH_HEADLINES or len(fresh_sources) < 2, 'At least three fresh headlines and two publishers are represented.', f'{fresh} fresh headlines across {len(fresh_sources)} fresh publishers; coverage is limited.'),
         check('feed_warnings', bool(result.warnings), 'No provider warnings reported.', ' · '.join(result.warnings)),
         check('sample_age', result.as_of.tzinfo is None or result.as_of > now or now-result.as_of > timedelta(minutes=10), 'Sample was computed within ten minutes.', 'Sample computation time is stale or invalid.'),
     ]
     flagged = [{'id': item.id, 'title': item.title, 'url': item.url, 'reasons': list(dict.fromkeys(reasons[item.id]))}
         for item in result.articles if reasons[item.id]]
-    return {'policy_version': '1', 'checked_at': now.isoformat(),
+    return {'policy_version': '2', 'checked_at': now.isoformat(),
         'status': 'attention' if any(item['status']=='attention' for item in checks) else 'checks_passed',
-        'headline_count': len(result.articles), 'fresh_headlines': fresh, 'publisher_count': sources,
+        'headline_count': len(result.articles), 'fresh_headlines': fresh, 'publisher_count': sources, 'fresh_publisher_count': len(fresh_sources),
         'flagged_headlines': flagged, 'checks': checks, 'model_accuracy': 'not_measured',
         'trading_integration_enabled': False,
         'interpretation': 'Automatic diagnostics only. Publisher links do not verify claims; model confidence does not establish accuracy or profitability.'}

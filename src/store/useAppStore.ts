@@ -31,27 +31,10 @@ interface AppState {
   setSearchTerm: (value: string) => void
 }
 
-function loadUserFromStorage(): User {
-  try {
-    const stored = localStorage.getItem('user')
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      return {
-        name: parsed.full_name || parsed.name || '',
-        email: parsed.email || '',
-        plan: parsed.plan || 'free',
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return { name: '', email: '', plan: 'free' }
-}
-
 export const useAppStore = create<AppState>((set) => ({
   sidebarCollapsed: false,
   marketOpen: true,
-  user: loadUserFromStorage(),
+  user: { name: '', email: '', plan: 'free' },
   notifications: [],
   searchTerm: '',
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -61,7 +44,7 @@ export const useAppStore = create<AppState>((set) => ({
     useStrategyStore.getState().reset()
     localStorage.removeItem('access_token')
     localStorage.removeItem('user')
-    set({ user: { name: '', email: '', plan: 'free' }, notifications: [] })
+    set({ user: { name: '', email: '', plan: 'free' }, notifications: [], searchTerm: '' })
   },
   markNotificationRead: (id) =>
     set((s) => ({

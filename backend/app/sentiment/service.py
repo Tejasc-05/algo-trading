@@ -8,13 +8,14 @@ from typing import Literal
 @dataclass
 class SentimentResult:
     symbol: str
-    score: float  # -1 (very negative) .. 1 (very positive)
-    label: Literal["positive", "negative", "neutral"]
-    confidence: float  # 0..1
+    score: float | None  # -1 (very negative) .. 1 (very positive)
+    label: Literal["positive", "negative", "neutral"] | None
+    confidence: float | None  # 0..1
     as_of: datetime
     model_revision: str = 'unknown'
     provider: str = 'newsapi'
     model: str = 'ProsusAI/finbert'
+    aggregation: dict = field(default_factory=dict)
     articles: list = field(default_factory=list)
     counts: dict = field(default_factory=dict)
     probabilities: dict = field(default_factory=dict)

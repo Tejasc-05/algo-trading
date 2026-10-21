@@ -35,10 +35,11 @@ async def test_rss_no_key_partial_coverage_and_cache(client, auth_headers, monke
     assert response.status_code==200,response.text
     data=response.json()
     assert data['provider']=='rss' and data['feed_delay_hours']==0
-    assert data['warnings']==['CoinDesk feed unavailable']
+    assert 'CoinDesk feed unavailable' in data['warnings'] and 'Decrypt feed unavailable' in data['warnings']
+    assert any('Fresh coverage is limited' in w for w in data['warnings'])
     assert data['articles'][0]['source']=='Cointelegraph'
     assert (await client.get('/api/sentiment/BTC?provider=rss',headers=auth_headers)).json()['cached']
-    assert len(seen)==2
+    assert len(seen)==3
     health = (await client.get('/api/sentiment/health/BTC',headers=auth_headers)).json()['sources']
     assert health[0]['status']=='reachable' and health[0]['matching_headlines']==1
     assert health[1]['status']=='unavailable'

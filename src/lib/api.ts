@@ -1,6 +1,5 @@
-/** Centralized API client for AlgoFlow backend.
- *  All calls include auth header automatically.
- */
+import { clearBrowserSession, getCsrfToken, setBrowserSession, redirectToLogin } from './session';
+/** Same-origin cookie authentication with session-bound CSRF proof. */
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 class ApiError extends Error {
@@ -19,28 +18,34 @@ class ApiError extends Error {
   }
 }
 
-function getAuthHeader(): Record<string, string> {
-  const token = localStorage.getItem('access_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (options.method && !['GET', 'HEAD', 'OPTIONS'].includes(options.method) && !getCsrfToken()
+      && !['/auth/browser/login', '/auth/browser/register'].includes(path)) {
+    // Recovery pages can be loaded directly in a tab with an existing cookie.
+    // An expired cookie is cleared by this endpoint before public reset calls.
+    const session = await fetch(`${API_BASE}/auth/browser/session`, { credentials: 'same-origin' });
+    if (session.ok) {
+      const result = await session.json(); setBrowserSession(result.user.id, result.csrf_token);
+    } else if (session.status !== 401) {
+      throw new ApiError('Unable to verify your session. Try again.', session.status, 'SESSION_UNAVAILABLE');
+    }
+  }
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      ...getAuthHeader(),
+      ...(getCsrfToken() ? { 'X-CSRF-Token': getCsrfToken() } : {}),
       ...options.headers,
     },
   });
 
   if (!response.ok) {
     if (response.status === 401 && !path.startsWith('/auth/')) {
-      localStorage.removeItem('access_token'); localStorage.removeItem('user')
-      window.location.assign('/login')
+      redirectToLogin()
     }
     let message = 'Request failed';
     let code = 'REQUEST_FAILED';
@@ -75,6 +80,15 @@ export interface ValidationMetrics {
   confusion_matrix: Record<string, Record<string, number>>; interpretation: string
 }
 export interface ReviewExport { schema_version: number; symbol: string; metrics: ValidationMetrics; items: HeadlineReview[]; next_offset: number | null }
+export interface NewsSummary {
+  headline_count: number; publisher_count: number; score: number | null;
+  label: 'positive' | 'negative' | 'neutral' | null; confidence: number | null;
+  counts: Record<string, number>; probabilities: Record<string, number>
+}
+export interface NewsAggregation {
+  method: string; reference_at?: string; fresh_window_hours: number; half_life_hours: number;
+  fresh: NewsSummary; older: NewsSummary; deduplicated_headlines: number; deduplication_method: string
+}
 export interface SentimentQuality {
   checked_at: string; status: 'attention' | 'checks_passed'; headline_count: number; fresh_headlines: number; publisher_count: number
   checks: { key: string; status: 'pass' | 'attention'; message: string }[]
@@ -120,19 +134,40 @@ export const api = {
   // Auth
   auth: {
     register: (email: string, password: string, fullName?: string) =>
-      request<{ access_token: string; user: any }>(
-        '/auth/register',
+      request<{ csrf_token: string; user: any }>(
+        '/auth/browser/register',
         {
           method: 'POST',
           body: JSON.stringify({ email, password, full_name: fullName }),
         }
-      ),
-    login: (email: string, password: string) =>
-      request<{ access_token: string; user: any }>('/auth/login', {
+      ).then(result => { setBrowserSession(result.user.id, result.csrf_token); return result }),
+    login: (email: string, password: string, totp_code?: string) =>
+      request<{ csrf_token: string; user: any }>('/auth/browser/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
-      }),
+        body: JSON.stringify({ email, password, totp_code }),
+      }).then(result => { setBrowserSession(result.user.id, result.csrf_token); return result }),
+    session: () => request<{ csrf_token: string; user: any }>('/auth/browser/session')
+      .then(result => { setBrowserSession(result.user.id, result.csrf_token); return result }),
+    logout: () => request<void>('/auth/browser/logout', { method: 'POST' }).then(() => clearBrowserSession()),
     me: () => request<any>('/auth/me'),
+    forgotPassword: (email: string) => request<{ message: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) }),
+    resetPassword: (token: string, password: string, confirm_password: string) => request<{ message: string }>('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, password, confirm_password }) }),
+  },
+
+  security: {
+    status: () => request<{ email_verified: boolean; mfa_enabled: boolean; recent_mfa: boolean }>('/security/status'),
+    requestEmail: () => request<{ message: string }>('/security/email/request', { method: 'POST' }),
+    verifyEmail: (token: string) => request<{ message: string }>('/security/email/verify', { method: 'POST', body: JSON.stringify({ token }) }),
+    enrollMfa: (password: string) => request<{ secret: string }>('/security/mfa/enroll', { method: 'POST', body: JSON.stringify({ password }) }),
+    confirmMfa: (code: string) => request<{ message: string; csrf_token: string }>('/security/mfa/confirm', { method: 'POST', body: JSON.stringify({ code }) })
+      .then(async result => { await api.auth.session(); return result }),
+    stepUp: (password: string, code: string) => request<{ message: string }>('/security/step-up', { method: 'POST', body: JSON.stringify({ password, code }) }),
+  },
+
+  live: {
+    readiness: () => request<{ ready: boolean; checks: { key: string; passed: boolean; message: string }[] }>('/live/readiness'),
+    verify: (id: string) => request<{ message: string }>(`/live/connections/${id}/verify`, { method: 'POST' }),
+    accounts: () => request<{ id: string; connection_id: string; verified_at: string | null }[]>('/live/accounts'),
   },
 
   // Strategies
@@ -177,7 +212,7 @@ export const api = {
     export: (symbol: string, offset = 0) => request<ReviewExport>(`/sentiment/export/${encodeURIComponent(symbol)}?offset=${offset}`),
     status: () => request<{ provider: string; news_configured: boolean; model_configured: boolean }>('/sentiment/status'),
     get: (symbol: string, provider?: string) =>
-      request<{ quality: SentimentQuality; symbol: string; score: number; label: 'positive' | 'negative' | 'neutral'; confidence: number; as_of: string; model: string; provider: string; warnings: string[]; inference_mode: 'local' | 'hosted'; cached: boolean; feed_delay_hours: number; window_hours: number; counts: Record<string, number>; articles: { id: string; title: string; summary: string; source: string; url: string; published_at: string; label: 'positive' | 'negative' | 'neutral' }[] }>(`/sentiment/${encodeURIComponent(symbol)}${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
+      request<{ aggregation: Partial<NewsAggregation>; quality: SentimentQuality; symbol: string; score: number | null; label: 'positive' | 'negative' | 'neutral' | null; confidence: number | null; as_of: string; model: string; provider: string; warnings: string[]; inference_mode: 'local' | 'hosted'; cached: boolean; feed_delay_hours: number; window_hours: number; counts: Record<string, number>; articles: { id: string; title: string; summary: string; source: string; url: string; published_at: string; related_sources?: string[]; label: 'positive' | 'negative' | 'neutral' }[] }>(`/sentiment/${encodeURIComponent(symbol)}${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
   },
 
   // Backtesting

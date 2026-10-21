@@ -13,6 +13,7 @@ from app.paper_trading.account_views import snapshot
 from app.paper_trading.risk import protective_exit, liquidation_price
 from app.paper_trading import futures
 from app.strategy_engine.executor import StrategyExecutor
+from app.strategy_engine.history import candle_limit
 
 
 def note(account, code, message, *, worker_check=False, **facts):
@@ -65,7 +66,7 @@ async def run_paper_trading_tick(db, account, strategy_graph, symbol, timeframe=
     if delta is None:
         raise AppError('INVALID_TIMEFRAME', 'Unsupported timeframe', 422)
     fetch = fetch_futures_ohlcv if account.market_type == 'futures' else fetch_latest_ohlcv
-    df = await fetch(symbol=symbol, timeframe=timeframe, limit=500)
+    df = await fetch(symbol=symbol, timeframe=timeframe, limit=candle_limit(strategy_graph, minimum=500))
     if df is None or df.empty:
         raise AppError('MARKET_DATA_UNAVAILABLE', 'No market data available for paper trading', 503)
     df = df[df.timestamp + delta <= pd.Timestamp.now(tz='UTC')].reset_index(drop=True)
@@ -91,6 +92,8 @@ async def run_paper_trading_tick(db, account, strategy_graph, symbol, timeframe=
     if previous and df.iloc[0].timestamp.to_pydatetime() > previous + delta:
         raise AppError('CANDLE_HISTORY_GAP', 'Unprocessed history exceeds the candle window; stop and close or start a new paper account.', 409)
     new = df[df.timestamp > pd.Timestamp(previous)] if previous else df.iloc[-1:]
+    if previous and new.iloc[0].timestamp.to_pydatetime() != previous + delta:
+        raise AppError('CANDLE_HISTORY_GAP', 'The first unprocessed candle is missing; simulated execution is paused.', 409)
     if len(new) > 1 and not (new.timestamp.diff().dropna() == delta).all():
         raise AppError('CANDLE_HISTORY_GAP', 'Market data has missing candles; simulated execution is paused.', 409)
     current_price = float(df.iloc[-1]['close'])
@@ -172,6 +175,13 @@ async def run_paper_trading_tick(db, account, strategy_graph, symbol, timeframe=
     if pending_trade:
         return await _finish(db, account, 'ORDER_FILLED', 'Queued simulated order filled; no additional strategy entry on this candle', current_price, pending_trade)
     actions = {'openLong', 'openShort', 'closePosition'} if account.market_type == 'futures' else {'buy', 'sell'}
+    candidates = [s for s in signals if s.action in actions]
+    # An explicit futures close can reduce existing exposure. Otherwise require
+    # one unambiguous action, independent of graph node/edge insertion order.
+    closing = positions and any(s.action == 'closePosition' for s in candidates)
+    risk_actions = [s.action for s in signals if s.action in {'set_stop_loss', 'set_take_profit'}]
+    if (len(candidates) > 1 and not closing) or len(risk_actions) != len(set(risk_actions)):
+        return await _finish(db, account, 'CONFLICTING_SIGNALS', 'Multiple actions or protective levels triggered; no new strategy order submitted.', current_price)
     actionable = next((s for s in signals if s.action == 'closePosition'), None) if positions else None
     actionable = actionable or next((s for s in signals if s.action in actions), None)
     if actionable is None:

@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table'
 import { EquityChart } from '@/components/charts/RechartsComponents'
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Input } from '@/components/ui/input'
 import { PaperDiagnostics } from '@/components/PaperDiagnostics'
 import { useApi } from '@/hooks/useApi'
@@ -22,6 +23,7 @@ import { formatPercent } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 
 export function PaperTradingPage() {
+  const [searchParams] = useSearchParams()
   const accounts = useApi(() => api.paperTrading.accounts())
   const [selectedId, setSelectedId] = useState('')
   const accountId = selectedId || accounts.data?.[0]?.id || ''
@@ -33,6 +35,10 @@ export function PaperTradingPage() {
   const [strategyId, setStrategyId] = useState('')
   const [marketType, setMarketType] = useState<'spot' | 'futures'>('spot')
   const [symbol, setSymbol] = useState('BTC/USDT')
+  useEffect(() => {
+    const requestedSymbol = searchParams.get('symbol')?.toUpperCase()
+    if (requestedSymbol && /^[A-Z0-9]{1,12}\/[A-Z0-9]{1,12}$/.test(requestedSymbol)) setSymbol(requestedSymbol)
+  }, [searchParams])
   const [timeframe, setTimeframe] = useState('1h')
   const [balance, setBalance] = useState('10000')
   const [leverage, setLeverage] = useState('1')

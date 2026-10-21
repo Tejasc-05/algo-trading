@@ -2,6 +2,7 @@
 Adding a new feature area means adding one router module here — nothing else
 in main.py needs to change."""
 from fastapi import APIRouter
+from app.api.routes import browser_auth, account_security, live
 
 from app.api.routes import (
     auth,
@@ -17,6 +18,9 @@ from app.api.routes import (
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(browser_auth.router)
+api_router.include_router(account_security.router)
+api_router.include_router(live.router)
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(strategies.router)

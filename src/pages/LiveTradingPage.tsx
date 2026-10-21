@@ -13,16 +13,21 @@ import { useState } from 'react'
 import { formatCurrency } from '@/utils/formatters'
 import { cn } from '@/utils/cn'
 import { FuturesDemoPanel } from '@/features/strategy-builder/FuturesDemoPanel'
+import { Link } from 'react-router-dom'
 
 export function LiveTradingPage() {
   const connections = useApi(() => api.exchanges.list())
+  const readiness = useApi(() => api.live.readiness())
   const exchangeConnections = (connections.data ?? []).map((e: any) => ({
     id: e.id, name: e.label || e.exchange_name, logo: e.exchange_name[0].toUpperCase(),
-    connected: e.is_active, status: e.is_testnet ? 'Sandbox credentials saved' : 'Credentials saved' }))
+    connected: e.is_active, isTestnet: e.is_testnet, status: e.is_testnet ? 'Sandbox credentials saved' : 'Production credentials saved' }))
   const activeBots: { id: string; name: string; strategy: string; status: string; trades: number; pnl: number }[] = []
   const liveTradeFeed: { id: string; pair: string; bot: string; action: string; price: number; time: string }[] = []
   const [connectError, setConnectError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [environment, setEnvironment] = useState('sandbox')
+  const [verification, setVerification] = useState<Record<string, string>>({})
+  const [verifying, setVerifying] = useState<string | null>(null)
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -43,6 +48,20 @@ export function LiveTradingPage() {
         <StatCard title="Connected Exchanges" value={String(exchangeConnections.length)} change="Saved connections" changeType="neutral" icon={<Link2 className="h-5 w-5" />} delay={0.1} />
         <StatCard title="Live P&L Today" value="—" change="Live execution disabled" changeType="positive" icon={<Zap className="h-5 w-5" />} delay={0.2} />
       </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Live trading readiness</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm">Production orders are disabled while release requirements are completed. Account verification only reads Binance data.</p>
+          {readiness.loading && <p role="status" className="text-sm">Checking your account…</p>}
+          {readiness.error && <p role="alert" className="text-sm text-destructive">{readiness.error}</p>}
+          {readiness.data?.checks.map(check => <p key={check.key} className="text-sm flex gap-2">
+            {check.passed ? <CheckCircle2 className="h-4 w-4 shrink-0 text-success" /> : <XCircle className="h-4 w-4 shrink-0 text-warning" />}
+            <span>{check.passed ? `${check.key.replaceAll('_', ' ')}: complete` : check.message}</span>
+          </p>)}
+          <Link to="/settings" className="text-sm text-primary underline">Set up email verification and authenticator</Link>
+        </CardContent>
+      </Card>
 
       <FuturesDemoPanel />
 
@@ -142,7 +161,17 @@ export function LiveTradingPage() {
                     </div>
                   </div>
                 </div>
-                <Switch checked={exchange.connected} disabled />
+                <div className="space-y-2 text-right">
+                  {!exchange.isTestnet && exchange.connected && <Button size="sm" variant="outline" disabled={!!verifying}
+                    onClick={async () => {
+                      setVerifying(exchange.id)
+                      try { const result = await api.live.verify(exchange.id); setVerification(value => ({ ...value, [exchange.id]: result.message })) }
+                      catch (error) { setVerification(value => ({ ...value, [exchange.id]: error instanceof Error ? error.message : 'Verification failed.' })) }
+                      finally { setVerifying(null) }
+                    }}>{verifying === exchange.id ? 'Checking…' : 'Verify account (read only)'}</Button>}
+                  <Switch checked={exchange.connected} disabled />
+                  {verification[exchange.id] && <p role="status" className="text-xs max-w-xs">{verification[exchange.id]}</p>}
+                </div>
               </div>
             ))}
           </CardContent>
@@ -161,14 +190,23 @@ export function LiveTradingPage() {
               setConnecting(true); setConnectError(null)
               try {
                 await api.exchanges.connect({ exchange_name: String(fields.get('exchange_name')),
-                  api_key: String(fields.get('api_key')), api_secret: String(fields.get('api_secret')), is_testnet: true })
+                  api_key: String(fields.get('api_key')), api_secret: String(fields.get('api_secret')), is_testnet: environment === 'sandbox' })
                 form.reset(); connections.refetch()
               } catch (error) { setConnectError(error instanceof Error ? error.message : 'Unable to save connection') }
               finally { setConnecting(false) }
             }}>
               <div className="space-y-2">
+                <Label htmlFor="connection-environment">Environment</Label>
+                <select id="connection-environment" className="w-full rounded-md border border-border bg-background p-2 text-sm"
+                  value={environment} onChange={e => setEnvironment(e.target.value)} disabled={connecting}>
+                  <option value="sandbox">Sandbox / demo</option>
+                  <option value="production">Binance production — verification only</option>
+                </select>
+                {environment === 'production' && <p className="text-xs text-muted-foreground">Requires verified email and recent authenticator confirmation. Use a dedicated Binance futures key with IP restrictions; disable withdrawals and transfers.</p>}
+              </div>
+              <div className="space-y-2">
                 <Label>Exchange</Label>
-                <Input name="exchange_name" required placeholder="CCXT exchange id, e.g. binance" />
+                <Input name="exchange_name" required placeholder="CCXT exchange id, e.g. binanceusdm" />
               </div>
               <div className="space-y-2">
                 <Label>API Key</Label>
@@ -178,7 +216,7 @@ export function LiveTradingPage() {
                 <Label>API Secret</Label>
                 <Input name="api_secret" required type="password" placeholder="Enter API secret" />
               </div>
-              <Button variant="gradient" className="w-full" disabled={connecting}>{connecting ? "Saving…" : "Save Sandbox Connection"}</Button>
+              <Button variant="gradient" className="w-full" disabled={connecting}>{connecting ? "Saving…" : environment === 'sandbox' ? "Save Sandbox Connection" : "Save Production Credentials for Verification"}</Button>
               {connectError && <p role="alert" className="text-destructive text-sm">{connectError}</p>}
               <p className="text-[11px] text-muted-foreground text-center">
                 API credentials are encrypted at rest. Saving credentials does not enable live trading.

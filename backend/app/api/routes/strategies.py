@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_current_user, get_db
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ConflictError
 from app.database.models.strategy import Strategy, StrategyVersion
 from app.database.models.user import User
 from app.database.repositories.strategy_repository import StrategyRepository
@@ -143,8 +143,27 @@ async def delete_strategy(
 ) -> None:
     repo = StrategyRepository(db)
     strategy = await _get_owned_strategy(db, strategy_id, current_user.id)
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    from app.database.models.paper_trading import PaperAccount
+    from app.database.models.futures import DemoSession
+    from app.database.models.backtest import Backtest
+    from app.database.models.live import LiveRun
+    version_ids = select(StrategyVersion.id).where(StrategyVersion.strategy_id == strategy.id)
+    used = (
+        await db.scalar(select(PaperAccount.id).where(PaperAccount.strategy_id == strategy.id).limit(1))
+        or await db.scalar(select(DemoSession.id).where(DemoSession.strategy_version_id.in_(version_ids)).limit(1))
+        or await db.scalar(select(Backtest.id).where(Backtest.strategy_version_id.in_(version_ids)).limit(1))
+        or await db.scalar(select(LiveRun.id).where(LiveRun.strategy_version_id.in_(version_ids)).limit(1))
+    )
+    if used:
+        raise ConflictError('This strategy has trading or backtest history and must be retained.', code='STRATEGY_IN_USE')
     await repo.delete(strategy)
-    await repo.commit()
+    try:
+        await repo.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise ConflictError('This strategy is in use and cannot be deleted.', code='STRATEGY_IN_USE') from None
 
 
 @router.post("/{strategy_id}/validate", response_model=StrategyValidationResult)
@@ -189,7 +208,8 @@ async def execute_strategy(
     executor = StrategyExecutor(graph)
 
     from app.market_data.historical import fetch_latest_ohlcv
-    candles_pd = await fetch_latest_ohlcv(symbol="BTC/USDT", timeframe="1h", limit=100)
+    from app.strategy_engine.history import candle_limit
+    candles_pd = await fetch_latest_ohlcv(symbol="BTC/USDT", timeframe="1h", limit=candle_limit(graph))
     from app.market_data.historical import TIMEFRAME_DELTA
     from app.core.exceptions import AppError
     import pandas as pd

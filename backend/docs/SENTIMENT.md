@@ -1,6 +1,6 @@
 # News sentiment
 
-The existing sentiment dashboard defaults to public Cointelegraph/CoinDesk RSS headlines, with optional NewsAPI English BTC/ETH headlines scored by ProsusAI/finbert locally on CPU by default (hosted HF Inference is optional). CryptoPanic, X/social and on-chain sources remain unavailable. This service does not change, restart or feed orders to futures demo sessions. Sentiment strategy execution remains disabled pending a separate integration and acceptance tests.
+The existing sentiment dashboard defaults to public Cointelegraph/CoinDesk/Decrypt RSS headlines, with optional NewsAPI English BTC/ETH headlines scored by ProsusAI/finbert locally on CPU by default (hosted HF Inference is optional). CryptoPanic, X/social and on-chain sources remain unavailable. This service does not change, restart or feed orders to futures demo sessions. Sentiment strategy execution remains disabled pending a separate integration and acceptance tests.
 
 ## Key-free RSS setup (default)
 
@@ -8,7 +8,7 @@ No CryptoPanic, NewsAPI or Hugging Face inference token is needed for public RSS
 
 Fixed publisher URLs are fetched with bounded response size, without redirects or credentials. Only UTF-8 RSS is parsed; DTD/entity declarations are rejected. Titles are scored and linked to the source; full article bodies and publisher HTML summaries are not scraped or republished. Duplicate titles are removed. Failed feeds produce visible partial-coverage warnings; all failed feeds or zero matching headlines produce an unavailable result, never a neutral guess. Public feed availability does not establish permission for unrestricted commercial redistribution; review publisher terms before release.
 
-Acceptance: live public feeds plus actual CPU FinBERT produced six BTC and two ETH classifications on the development run. CoinDesk was unavailable in that run; Cointelegraph supplied the evidence and the response reported partial coverage.
+Historical acceptance: the initial development run used only Cointelegraph because CoinDesk’s former trailing-slash URL redirected. The canonical CoinDesk feed now omits that slash; Decrypt is also allowlisted. Source health retains checks for all three publishers; a changed URL is marked unknown until a fresh check.
 
 ## Optional NewsAPI setup
 
@@ -29,7 +29,7 @@ docker compose up -d --no-deps --force-recreate api
 docker compose exec -T api python -m app.sentiment.local_model
 ```
 
-Open Sentiment Analysis, choose BTC or ETH, and click Refresh. Configured means a key exists, not that credentials or quota have been verified. Genuine news credentials are required for end-to-end news acceptance. Local model inference is checked separately using downloaded weights; news collection tests use injected responses. For local Python without Docker, install torch==2.9.1 and requirements-sentiment.txt, then run python -m app.sentiment.local_model. To use hosted inference instead, set SENTIMENT_INFERENCE_MODE=hosted and HF_TOKEN; hosted inference requires provider quota/credits.
+Open Sentiment Analysis, choose BTC or ETH, and click Refresh. Configured means a key exists, not that credentials or quota have been verified. Genuine news credentials are required for end-to-end news acceptance. Local model inference is checked separately using downloaded weights; news collection tests use injected responses. For local Python without Docker, install torch==2.13.0 and requirements-sentiment.txt, then run python -m app.sentiment.local_model. To use hosted inference instead, set SENTIMENT_INFERENCE_MODE=hosted and HF_TOKEN; hosted inference requires provider quota/credits.
 
 ## Meaning and provenance
 
@@ -37,11 +37,11 @@ GET /api/sentiment/status returns configuration booleans, supported assets, mode
 
 Fetch at most 20 newest English titles mentioning Bitcoin or Ethereum from a 24-hour window ending NEWSAPI_DELAY_HOURS ago (default: 24, matching the free developer plan), drop duplicates/invalid URLs/missing or stale timestamps, and classify up to 10 unique headlines. Headline relevance is name-based, not entity disambiguation. Descriptions are displayed publisher excerpts, not AI summaries; only the headline is scored. Set NEWSAPI_DELAY_HOURS=0 only for a plan with real-time access. The dashboard explicitly labels the feed delay; delayed news is not current market sentiment. Linked articles are not fetched.
 
-Each headline has positive/negative/neutral probabilities. Aggregate probabilities are unweighted means across headlines. The aggregate label is the largest mean probability; score is mean positive minus mean negative, in [-1,1]. The gauge maps this to [0,100]. Confidence is the aggregate label probability, not a calibrated trading confidence or prediction accuracy. Counts classify each headline by its highest probability. A neutral label can accompany a small nonzero score.
+Each headline has positive/negative/neutral probabilities. NewsAPI retains an unweighted mean across its intentionally delayed sample. RSS uses `recency-v1`: classify up to 30 distinct stories, then separately summarize fresh (within 24 hours) and older (24 hours to the configured window) news. A headline’s weight is `2 ** (-age_hours / 12)`, normalized within each group. RSS top-level score, label, confidence, counts and probabilities describe only the fresh group. Older news has a separate context summary and never affects that score. With no fresh headlines, score/label/confidence are null and probabilities empty; older evidence remains visible. If no matching evidence exists anywhere in the configured window, return an error. The aggregate label is the largest weighted probability; score is weighted positive minus weighted negative, in [-1,1]. The gauge maps this to [0,100]. Confidence is the aggregate label probability, not a calibrated trading confidence or prediction accuracy. Counts classify each headline by its highest probability. A neutral label can accompany a small nonzero score.
 
 Responses carry computation time, article publication time, source links, model, sample size and cache status. Public news results cache for 300 seconds with credential fingerprint invalidation. Refresh can return the same cached evidence. Local per-asset locks coalesce requests within one API process; multiple processes can make concurrent upstream calls. Hosted FinBERT inference concurrency is limited to three, with a 45-second overall provider timeout.
 
-No recent news, quota/auth errors, invalid model output or timeouts produce errors, never a fabricated neutral score. Redis outages bypass cache. Scores are not saved as historical backtest inputs; no point-in-time replay is provided. FinBERT's financial-text training does not establish crypto-specific accuracy or strategy profitability. Provider availability can change; there is no silent fallback.
+No matching evidence, quota/auth errors, invalid model output or timeouts produce errors, never a fabricated neutral score. Older-only RSS evidence returns a null recent score and an explicit warning rather than masquerading as current sentiment. Redis outages bypass cache. Scores are not saved as historical backtest inputs; no point-in-time replay is provided. FinBERT's financial-text training does not establish crypto-specific accuracy or strategy profitability. Provider availability can change; there is no silent fallback.
 
 ## Checks
 
@@ -139,3 +139,34 @@ background schedule. Source reachability remains visible even when news fails.
 `checks_passed` means only the operational/sample checks passed; `model_accuracy`
 remains `not_measured` and `trading_integration_enabled` remains false. Independently
 labeled, held-out examples are still needed to assess model accuracy.
+
+## RSS selection and freshness policy
+
+Fixed feeds: `https://cointelegraph.com/rss`,
+`https://www.coindesk.com/arc/outboundfeeds/rss`, `https://decrypt.co/feed`.
+No keys, redirects or linked-article scraping are required. Each feed is bounded
+and scanned up to 100 items. The newest 30 distinct stories are selected after
+filtering and deduplication; counts therefore describe a bounded sample, not all
+market news.
+
+Deduplication canonicalizes tracking URLs and normalizes title case, punctuation,
+common stop words and BTC/ETH aliases. Conservative near-title matches require
+different publishers, publication times within 12 hours, at least six shared
+content tokens, Jaccard similarity >= 0.8, and matching numbers/direction markers.
+It is heuristic, not semantic event verification. Keep the latest representative
+and show its associated publisher names; duplicate reports cannot increase its
+sentiment weight. Different numbers or opposing wording are retained.
+
+Fresh coverage needs at least three distinct fresh stories with representatives
+from two publishers. An older publisher cannot satisfy fresh diversity. These
+thresholds and the 12-hour half-life are transparent product policies, not
+calibrated measures of predictive accuracy. Automatic diagnostics policy v2
+separates intentional older context from invalid timestamps. Older-only samples
+remain limited/unavailable for recent scoring. Trading integration stays disabled.
+
+The cache key includes the new aggregation policy to invalidate old mean-based
+responses. Cached RSS groups/weights and quality checks recompute against the
+current time, without another model call, so headlines crossing 24 hours cannot
+keep influencing a recent score. `aggregation.reference_at` is the grouping time;
+`as_of` remains the original sample/inference time. Browser groups use the same
+reference time. Review evidence remains immutable and scoped to each user.

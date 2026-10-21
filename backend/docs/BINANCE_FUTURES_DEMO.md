@@ -67,7 +67,7 @@ Real-money rollout still requires authenticated demo acceptance tests, longer-ru
 - [Order, conditional-order and reconciliation API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/trade)
 - [Account and position API](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/account)
 
-## Why no trade? diagnostics
+## Strategy status diagnostics
 
 Migration `0007_futures_diagnostics` adds a nullable JSON snapshot to each demo
 session. The existing user-scoped session responses include it; viewing or

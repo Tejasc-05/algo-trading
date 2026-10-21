@@ -13,6 +13,7 @@ class ArticleOut(BaseModel):
     source: str
     url: str
     published_at: datetime
+    related_sources: list[str] = Field(default_factory=list)
     probabilities: dict[str, float] = Field(default_factory=dict)
     label: Label
     score: float = Field(ge=-1, le=1)
@@ -21,9 +22,9 @@ class ArticleOut(BaseModel):
 
 class SentimentOut(BaseModel):
     symbol: str
-    score: float = Field(ge=-1, le=1)
-    label: Label
-    confidence: float = Field(ge=0, le=1)
+    score: float | None = Field(ge=-1, le=1)
+    label: Label | None
+    confidence: float | None = Field(ge=0, le=1)
     as_of: datetime
     provider: str
     model: str
@@ -31,6 +32,7 @@ class SentimentOut(BaseModel):
     articles: list[ArticleOut]
     counts: dict[str, int]
     probabilities: dict[str, float]
+    aggregation: dict = Field(default_factory=dict)
     quality: dict = Field(default_factory=dict)
     cached: bool = False
     window_hours: int = 24

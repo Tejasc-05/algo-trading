@@ -6,11 +6,11 @@ import pandas as pd
 
 
 def _align(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray | float) -> tuple[np.ndarray, np.ndarray]:
-    a = np.asarray(left, dtype=float)
+    a = np.atleast_1d(np.asarray(left, dtype=float)) if left is not None else np.array([], dtype=float)
     if isinstance(right, (int, float, np.floating)):
         b = np.full_like(a, float(right))
         return a, b
-    b = np.asarray(right, dtype=float)
+    b = np.atleast_1d(np.asarray(right, dtype=float)) if right is not None else np.array([], dtype=float)
     n = min(len(a), len(b))
     return (a[-n:], b[-n:]) if n else (a[:0], b[:0])
 
@@ -39,7 +39,7 @@ def crosses_above(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray) -
     out = np.zeros(len(a), dtype=bool)
     if len(a) >= 2:
         out[1:] = (a[:-1] <= b[:-1]) & (a[1:] > b[1:])
-    return pd.Series(out)
+    return _known_crosses(a, b, out)
 
 
 def crosses_below(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray) -> pd.Series:
@@ -47,7 +47,17 @@ def crosses_below(left: pd.Series | np.ndarray, right: pd.Series | np.ndarray) -
     out = np.zeros(len(a), dtype=bool)
     if len(a) >= 2:
         out[1:] = (a[:-1] >= b[:-1]) & (a[1:] < b[1:])
-    return pd.Series(out)
+    return _known_crosses(a, b, out)
+
+
+def _known_crosses(a, b, out):
+    # Both this bar and the previous bar are required. Unknown is not false:
+    # NOT must never turn missing market/indicator data into a trade trigger.
+    valid = np.isfinite(a) & np.isfinite(b)
+    known = np.zeros(len(a), dtype=bool)
+    if len(a) > 1:
+        known[1:] = valid[:-1] & valid[1:]
+    return pd.Series(out, dtype="boolean").mask(~known)
 
 
 def _bool_arrays(*operands):

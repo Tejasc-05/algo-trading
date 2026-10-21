@@ -40,7 +40,7 @@ ticks cannot trade the same candle twice. A PostgreSQL row lock also serializes
 pause/resume/flatten and fills. SQLite tests cover accounting and API behavior;
 production locking relies on PostgreSQL.
 
-The Why no trade panel records actual node values, conditions, signals, pinned
+The Strategy status panel records actual node values, conditions, signals, pinned
 version, candle timing and the last decision/blocking error. Its worker timestamp
 is distinct from lifecycle updates. A 90-second stale heartbeat is an operational
 warning, not proof that exchange data or the worker is healthy. Failures are
@@ -135,3 +135,5 @@ liquidation, OHLC ambiguity/gaps, spot flattening from pause, pending cancellati
 closed-candle idempotency, API ownership and account data separation, rejected
 settings/margin, and persisted market-failure diagnostics. No exchange execution
 is needed for these tests.
+
+Audit safeguards: conflicting strategy actions or duplicate triggered risk levels skip new strategy orders with `CONFLICTING_SIGNALS`; an existing explicit futures close may still reduce exposure. Missing candles, including the first bar after the last processed bar, block execution. Saved strategies referenced by paper accounts cannot be deleted. The caller-priced `/simulate-fill` helper is available only when `ENVIRONMENT=development`; normal worker execution uses market data in all environments.

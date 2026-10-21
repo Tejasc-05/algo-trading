@@ -1,7 +1,7 @@
 # --- Web framework ---
 fastapi==0.142.2
 uvicorn[standard]==0.34.0
-python-multipart==0.0.20
+python-multipart==0.0.31
 
 # --- Config / validation ---
 pydantic==2.10.4
@@ -15,21 +15,25 @@ alembic==1.14.0
 aiosqlite==0.20.0  # test database only
 
 # --- Auth / security ---
-pyjwt==2.10.1
+pyjwt==2.15.0
 bcrypt==4.2.1
-cryptography==44.0.0
+cryptography==50.0.0
+pyotp==2.9.0
 
 # --- Redis / caching ---
 redis==5.2.1
 
 # --- Trading / quant (wired in from Phase 4 onward) ---
-ccxt==4.4.31
+ccxt==4.5.89
+# Security floors for CCXT's HTTP dependencies.
+aiohttp==3.14.4
+certifi==2026.10.19
 pandas==2.2.3
 numpy==1.26.4
 
 # --- Testing ---
-pytest==8.3.4
-pytest-asyncio==0.25.1
+pytest==9.0.3
+pytest-asyncio==1.4.0
 httpx==0.28.1
 fakeredis==2.26.2  # in-memory Redis for tests — no real Redis required to run pytest
 

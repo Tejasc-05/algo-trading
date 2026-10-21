@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { useAppStore } from '@/store/useAppStore'
+import { AccountSecurityPanel } from '@/features/account/AccountSecurityPanel'
 
 export function SettingsPage() {
   const user = useAppStore((s) => s.user)
@@ -94,13 +95,7 @@ export function SettingsPage() {
                 <Button variant="outline" disabled>Update Password</Button>
               </div>
               <Separator />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Two-Factor Authentication</p>
-                  <p className="text-xs text-muted-foreground">Add an extra layer of security</p>
-                </div>
-                <Button variant="outline" size="sm" disabled>Enable 2FA</Button>
-              </div>
+              <AccountSecurityPanel />
             </CardContent>
           </Card>
         </TabsContent>

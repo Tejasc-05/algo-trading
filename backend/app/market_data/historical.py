@@ -70,6 +70,8 @@ def normalize_ohlcv(df: pd.DataFrame | list) -> pd.DataFrame:
     numeric = out[["open", "high", "low", "close", "volume"]]
     if not np.isfinite(numeric.to_numpy()).all() or (out[["open", "high", "low", "close"]] <= 0).any().any() or (out["volume"] < 0).any():
         raise ValueError("OHLCV values must be finite with positive prices and nonnegative volume")
+    if (out['high'] < out[['open', 'close', 'low']].max(axis=1)).any() or (out['low'] > out[['open', 'close', 'high']].min(axis=1)).any():
+        raise ValueError("OHLCV high/low must contain the candle's open and close")
     out = out.sort_values("timestamp").drop_duplicates("timestamp", keep="last").reset_index(drop=True)
     return out[["timestamp", "open", "high", "low", "close", "volume"]]
 

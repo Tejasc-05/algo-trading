@@ -47,3 +47,10 @@ News sentiment defaults to key-free publisher RSS + local CPU FinBERT, with opti
 Binance Futures demo sessions support owned, pinned strategy versions, explicit long/short/close actions, isolated 1x positions, exposure and loss limits, durable order reconciliation and exchange-held stop loss/take profit. Read [BINANCE_FUTURES_DEMO.md](docs/BINANCE_FUTURES_DEMO.md) for setup and acceptance checks. Authenticated exchange fills still require genuine demo credentials and acceptance testing; production execution remains disabled.
 
 Paper account controls, isolated futures simulation and known assumptions: [PAPER_TRADING.md](docs/PAPER_TRADING.md).
+
+Email/password recovery setup and local mailbox: [PASSWORD_RESET.md](docs/PASSWORD_RESET.md).
+
+Project-wide execution/security audit and remaining acceptance work: [21 October 2026 audit](docs/PROJECT_AUDIT_2026-10-21.md).
+## Multi-user live release preparation
+
+See [MULTI_USER_RELEASE.md](docs/MULTI_USER_RELEASE.md) for the implemented security foundations, isolated PostgreSQL checks, deployment configuration and remaining release blockers. Production orders remain unavailable. Browser clients use HttpOnly cookie sessions and CSRF; legacy bearer issuance is development/test-only.

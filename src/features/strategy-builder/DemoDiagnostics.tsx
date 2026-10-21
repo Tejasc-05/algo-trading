@@ -27,8 +27,8 @@ export function DemoDiagnostics({ session }: { session: DemoSessionView }) {
   const actions = evaluation?.nodes.filter(node => node.category === 'action') ?? []
   const others = evaluation?.nodes.filter(node => node.category === 'indicator' && !node.macd) ?? []
   const stale = snapshot && Date.now() - Date.parse(snapshot.checked_at) > 90_000 && session.status === 'running'
-  return <section aria-label={`Why no trade? ${session.symbol} ${session.timeframe}`} className="rounded-lg bg-secondary/20 p-3 space-y-3">
-    <h4 className="text-sm font-semibold">Why no trade?</h4>
+  return <section aria-label={`Demo strategy status ${session.symbol} ${session.timeframe}`} className="rounded-lg bg-secondary/20 p-3 space-y-3">
+    <h4 className="text-sm font-semibold">Strategy status</h4>
     {!snapshot ? <p className="text-sm text-muted-foreground">{['paused', 'needs_attention'].includes(session.status) ? `Session paused. Last recorded reason: ${session.message || 'No status message available'}. No detailed diagnostic snapshot has been recorded yet.` : session.status === 'stopped' ? 'Session stopped. No diagnostic snapshot was recorded for this session.' : 'No diagnostic snapshot yet. The runner will record one on its next check.'}</p> : <>
       <p role="status" aria-atomic="true" className="text-sm">{snapshot.reason}</p>
       <p className="text-xs text-muted-foreground">Last runner check: {date(snapshot.checked_at)} · {snapshot.reason_code} · Last observed position: {snapshot.position ? `${snapshot.position.side} (${snapshot.position.quantity} base units)` : 'Not observed yet'}</p>

@@ -1,3 +1,4 @@
+import { getSessionGeneration } from '@/lib/session'
 import {
   addEdge,
   applyEdgeChanges,
@@ -18,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { SaveStrategyDialog } from './SaveStrategyDialog'
 import { NodePalette } from '@/features/strategy-builder/NodePalette'
 import { nodeTypes } from '@/features/strategy-builder/nodes/StrategyNodes'
 import { useStrategyStore, type StrategyNodeData } from '@/store/useStrategyStore'
@@ -53,6 +55,11 @@ export function StrategyCanvas() {
   const [signalOutput, setSignalOutput] = useState<string[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const saveButton = useRef<HTMLButtonElement>(null)
+  const saveRequest = useRef(false)
   const [templateId, setTemplateId] = useState('')
   const [selectedSavedId, setSelectedSavedId] = useState('')
   const savedStrategies = useApi(() => api.strategies.list())
@@ -128,8 +135,8 @@ export function StrategyCanvas() {
     event.dataTransfer.effectAllowed = 'move'
   }
 
-  const buildGraphPayload = () => {
-    if (!strategyName.trim()) throw new Error('Enter a strategy name')
+  const buildGraphPayload = (name = strategyName) => {
+    if (!name.trim()) throw new Error('Enter a strategy name')
     return {
       nodes: nodes.map((node) => {
         const params = visibleParameters(node.data)
@@ -147,17 +154,18 @@ export function StrategyCanvas() {
     }
   }
 
-  const persistCurrentGraph = async () => {
-    const sessionToken = localStorage.getItem('access_token')
-    const graph = buildGraphPayload()
+  const persistCurrentGraph = async (name = strategyName) => {
+    const sessionToken = getSessionGeneration()
+    const graph = buildGraphPayload(name)
     const validation = await api.strategies.validateGraph(graph)
     if (!validation.valid) throw new Error(validation.errors.map((issue: { message: string }) => issue.message).join('; '))
-    if (sessionToken !== localStorage.getItem('access_token')) throw new Error('Your session changed')
-    const payload = { name: strategyName.trim(), description, graph }
+    if (sessionToken !== getSessionGeneration()) throw new Error('Your session changed')
+    const payload = { name: name.trim(), description, graph }
     const result = savedStrategyId
       ? await api.strategies.update(savedStrategyId, payload)
       : await api.strategies.create(payload)
-    if (sessionToken !== localStorage.getItem('access_token')) throw new Error('Your session changed; reopen this strategy after signing in')
+    if (sessionToken !== getSessionGeneration()) throw new Error('Your session changed; reopen this strategy after signing in')
+    setStrategyName(result.name)
     setSavedStrategyId(result.id)
     setSelectedSavedId(result.id)
     markSaved()
@@ -165,14 +173,27 @@ export function StrategyCanvas() {
     return result
   }
 
+  const openSaveDialog = () => {
+    setSaveName(strategyName.trim() || 'Untitled Strategy')
+    setSaveError(null)
+    setSaveDialogOpen(true)
+  }
+
   const handleSave = async () => {
+    if (saveRequest.current) return
+    if (!saveName.trim()) { setSaveError('Enter a strategy name'); return }
+    saveRequest.current = true
     setIsSaving(true)
+    setSaveError(null)
     try {
-      const result = await persistCurrentGraph()
+      const result = await persistCurrentGraph(saveName)
       setTestStatus(`Saved: ${result.name} (v${result.current_version})`)
+      setSaveDialogOpen(false)
     } catch (err) {
-      setTestStatus(`Save failed: ${err instanceof Error ? err.message : 'Unable to save'}`)
-    } finally { setIsSaving(false) }
+      const message = err instanceof Error ? err.message : 'Unable to save'
+      setSaveError(message)
+      setTestStatus(`Save failed: ${message}`)
+    } finally { saveRequest.current = false; setIsSaving(false) }
   }
 
   const handleTestRun = async () => {
@@ -213,11 +234,11 @@ export function StrategyCanvas() {
   const openSavedStrategy = async () => {
     if (!selectedSavedId) return
     if (isDirty && !window.confirm('Replace the current unsaved graph with the saved strategy?')) return
-    const sessionToken = localStorage.getItem('access_token')
+    const sessionToken = getSessionGeneration()
     setIsSaving(true)
     try {
       const strategy = await api.strategies.get(selectedSavedId)
-      if (sessionToken !== localStorage.getItem('access_token')) throw new Error('Your session changed')
+      if (sessionToken !== getSessionGeneration()) throw new Error('Your session changed')
       const latest = strategy.versions.find((version: { version_number: number }) => version.version_number === strategy.current_version)
       if (!latest) throw new Error('This strategy has no saved graph')
       const graph = structuredClone(latest.graph)
@@ -254,6 +275,10 @@ export function StrategyCanvas() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] rounded-xl border border-border overflow-hidden glass">
+      <SaveStrategyDialog open={saveDialogOpen} name={saveName} busy={isSaving} error={saveError}
+        updating={!!savedStrategyId} onOpenChange={setSaveDialogOpen}
+        onNameChange={name => { setSaveName(name); setSaveError(null) }}
+        onSave={() => void handleSave()} onCloseFocus={() => saveButton.current?.focus()} />
       <NodePalette onDragStart={onDragStart} />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -308,12 +333,12 @@ export function StrategyCanvas() {
               variant="destructive"
               size="sm"
               onClick={handleDeleteSelected}
-              disabled={!selectedNodeIds.length}
+              disabled={!selectedNodeIds.length || isSaving || isExecuting}
             >
               <Trash2 className="h-4 w-4 mr-1" />
               Delete Selected
             </Button>
-            <Button size="sm" onClick={handleSave} disabled={isSaving || isExecuting}>
+            <Button ref={saveButton} size="sm" onClick={openSaveDialog} disabled={isSaving || isExecuting}>
               <Save className="h-4 w-4" />
               {isSaving ? 'Saving...' : 'Save Strategy'}
             </Button>

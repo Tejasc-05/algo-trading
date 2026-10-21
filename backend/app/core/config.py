@@ -3,14 +3,15 @@ from functools import lru_cache
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, EmailStr, model_validator
+from urllib.parse import urlsplit
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True)
 
     # App
-    environment: str = "development"
+    environment: Literal['development', 'test', 'production'] = "development"
     debug: bool = True
     cors_origins: str = "http://localhost:5173"
 
@@ -28,6 +29,17 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
 
+    # Password recovery; configure an SMTP service or the optional local mailbox.
+    password_reset_frontend_url: str = "http://localhost:5173"
+    password_reset_expire_minutes: int = Field(default=30, ge=5, le=60)
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: EmailStr | None = None
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+
     # Secrets encryption
     encryption_key: str
 
@@ -37,6 +49,34 @@ class Settings(BaseSettings):
 
     # Live trading kill switch (Phase 10)
     enable_live_trading: bool = False
+
+    @model_validator(mode='after')
+    def production_configuration(self):
+        if self.environment != 'production':
+            return self
+        from cryptography.fernet import Fernet
+        if self.debug or len(self.jwt_secret.encode()) < 32 or self.jwt_secret.lower().startswith(('change', 'test', 'dev')):
+            raise ValueError('Production requires DEBUG=false and a dedicated random signing secret of at least 32 bytes.')
+        try:
+            Fernet(self.encryption_key.encode())
+        except Exception:
+            raise ValueError('Production requires a valid dedicated Fernet encryption key.') from None
+        if not self.database_url.startswith('postgresql+asyncpg://'):
+            raise ValueError('Production requires PostgreSQL with asyncpg.')
+        origins = self.cors_origins_list
+        if len(origins) != 1:
+            raise ValueError('Production requires one same-origin HTTPS frontend.')
+        parsed = urlsplit(origins[0])
+        if (parsed.scheme != 'https' or not parsed.hostname or parsed.hostname in {'localhost', '127.0.0.1', '::1'}
+                or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment or '*' in origins[0]):
+            raise ValueError('Production requires an explicit public HTTPS origin without a path.')
+        if self.access_token_expire_minutes > 60 or self.access_token_expire_minutes < 5:
+            raise ValueError('Production browser sessions must expire in 5–60 minutes.')
+        if not self.smtp_host or not self.smtp_from_email or not (self.smtp_starttls or self.smtp_ssl):
+            raise ValueError('Production requires configured encrypted SMTP for account recovery and verification.')
+        if self.password_reset_frontend_url.rstrip('/') != origins[0]:
+            raise ValueError('Account emails must link to the configured frontend origin.')
+        return self
 
     # Exchange credentials (placeholders — real usage starts Phase 5)
     binance_api_key: str | None = None

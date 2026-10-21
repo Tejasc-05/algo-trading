@@ -1,0 +1,89 @@
+# Use a separate project and explicitly supplied environment file. No exchange
+# worker is started by this deployment; real execution remains unavailable.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: algoflow
+      POSTGRES_DB: algoflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Provide a dedicated production database password}
+    volumes: [postgres_production:/var/lib/postgresql/data]
+    networks: [private]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U algoflow -d algoflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes: [redis_production:/data]
+    networks: [private]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  api:
+    image: ${API_IMAGE:?Build and select a reviewed immutable API image}
+    command: [uvicorn, app.main:app, --host, "0.0.0.0", --port, "8000", --proxy-headers, --forwarded-allow-ips, "${PROXY_IP:-172.30.88.10}", --limit-concurrency, "100"]
+    env_file: [.env.production]
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      ENABLE_LIVE_TRADING: "false"
+      DATABASE_URL: ${DATABASE_URL:?Provide the URL-encoded production asyncpg database URL}
+      REDIS_URL: redis://redis:6379/0
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [private, api_egress]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/health/ready',headers={'Host':os.environ['PUBLIC_HOST']}),timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+    restart: unless-stopped
+  migrate:
+    extends: api
+    profiles: [migration]
+    command: [python, -m, alembic, upgrade, head]
+    restart: "no"
+  web:
+    image: ${WEB_IMAGE:?Build and select a reviewed immutable web image}
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Provide the public domain}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: "0"
+    ports: ["80:80", "443:443"]
+    volumes: [caddy_data:/data, caddy_config:/config]
+    networks:
+      private:
+        ipv4_address: ${PROXY_IP:-172.30.88.10}
+      web_egress: {}
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+networks:
+  private:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${PRIVATE_SUBNET:-172.30.88.0/24}
+  api_egress: {}
+  web_egress: {}
+volumes:
+  postgres_production: {}
+  redis_production: {}
+  caddy_data: {}
+  caddy_config: {}

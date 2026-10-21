@@ -44,6 +44,10 @@ export function SentimentPage() {
   const [symbol, setSymbol] = useState('BTC')
   const { data, loading, error, refetch } = useApi(() => api.sentiment.get(symbol), [symbol])
   const { data: setup } = useApi(() => api.sentiment.status())
+  const recentAvailable = !!data && data.score != null && data.label != null && data.confidence != null
+  const older = data?.aggregation?.older
+  const recentArticles = (data?.articles ?? []).filter(item => data?.provider !== 'rss' || Date.parse(data.aggregation?.reference_at ?? data.as_of) - Date.parse(item.published_at) <= 24 * 3600000)
+  const olderArticles = (data?.articles ?? []).filter(item => data?.provider === 'rss' && Date.parse(data.aggregation?.reference_at ?? data.as_of) - Date.parse(item.published_at) > 24 * 3600000)
   const configured = setup?.news_configured && setup?.model_configured
   return (
     <div className="space-y-6">
@@ -67,16 +71,20 @@ export function SentimentPage() {
         <p>{setup.provider === 'rss' ? 'Publisher RSS' : 'NewsAPI'}: {setup.news_configured ? 'Configured' : 'Not configured'} · FinBERT model: {setup.model_configured ? 'Configured' : 'Not configured'}</p>
       </CardContent></Card>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {data?.warnings?.map(warning => <p key={warning} role="status" className="text-sm text-warning">{warning}; results use the available feed.</p>)}
+      {data?.warnings?.map(warning => <p key={warning} role="status" className="text-sm text-warning">{warning}</p>)}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6" aria-busy={loading}>
-        <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Brain aria-hidden="true" className="h-4 w-4 text-primary" />Market Sentiment</CardTitle></CardHeader>
-          <CardContent>{data && !loading ? <><SentimentGauge value={Math.round((data.score + 1) * 50)} label={data.label} /><p className="text-xs text-muted-foreground text-center">0 = negative · 50 = balanced · 100 = positive</p></> : <p className="text-sm text-muted-foreground py-8">{loading ? 'Loading sentiment…' : 'No sentiment score available'}</p>}</CardContent>
+        <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Brain aria-hidden="true" className="h-4 w-4 text-primary" />{data?.provider === 'rss' ? 'Recent News Sentiment (24h)' : 'Headline Sentiment'}</CardTitle></CardHeader>
+          <CardContent>{data && recentAvailable && !loading ? <><SentimentGauge value={Math.round((data.score! + 1) * 50)} label={data.label!} /><p className="text-xs text-muted-foreground text-center">0 = negative · 50 = balanced · 100 = positive</p></> : <p className="text-sm text-muted-foreground py-8">{loading ? 'Loading sentiment…' : 'No recent sentiment score available'}</p>}</CardContent>
         </Card>
-        <Card className="md:col-span-2"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Headline Classification</CardTitle><Badge variant="secondary">{data && !loading ? data.label.toUpperCase() : 'UNAVAILABLE'}</Badge></CardHeader>
+        <Card className="md:col-span-2"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Headline Classification</CardTitle><Badge variant="secondary">{data && recentAvailable && !loading ? data.label!.toUpperCase() : 'UNAVAILABLE'}</Badge></CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Aggregate label probability</span><span className="text-2xl font-bold text-primary">{data && !loading ? `${Math.round(data.confidence * 100)}%` : '—'}</span></div>
-            {data && !loading && <><Progress value={data.confidence * 100} className="h-3" /><p className="text-sm">{data.articles.length} headlines · Positive: {data.counts.positive} · Neutral: {data.counts.neutral} · Negative: {data.counts.negative}</p>
+            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Aggregate label probability</span><span className="text-2xl font-bold text-primary">{data && recentAvailable && !loading ? `${Math.round(data.confidence! * 100)}%` : '—'}</span></div>
+            {data && recentAvailable && !loading && <><Progress value={data.confidence! * 100} className="h-3" /><p className="text-sm">{data.aggregation?.fresh?.headline_count ?? data.articles.length} {data.provider === 'rss' ? 'recent headlines' : 'headlines'} · Positive: {data.counts.positive} · Neutral: {data.counts.neutral} · Negative: {data.counts.negative}</p>
               <p className="text-xs text-muted-foreground">{data.provider === 'rss' ? 'Publisher RSS' : 'NewsAPI'} · {data.model} ({data.inference_mode}) · {data.window_hours}-hour sample · Feed delay: {data.feed_delay_hours}h · Computed {new Date(data.as_of).toLocaleString()}{data.cached ? ' · Cached (up to 5 minutes)' : ''}</p></>}
+            {data?.aggregation?.method && !loading && <div className="space-y-2 text-sm">
+              <p className="text-muted-foreground">Recent sample: {data.aggregation.fresh?.headline_count ?? 0} distinct headlines across {data.aggregation.fresh?.publisher_count ?? 0} publishers. Recency weighting: {data.aggregation.half_life_hours}-hour half-life. {data.aggregation.deduplicated_headlines} duplicate reports removed.</p>
+              {older && older.headline_count > 0 && <p>Older news context (over 24h): {older.headline_count} headlines · {older.label ?? 'Unavailable'} · Score {older.score?.toFixed(2) ?? '—'}. Excluded from the recent score.</p>}
+            </div>}
             <p className="text-sm text-muted-foreground">Model probabilities describe headline wording, not the chance of a price move or a profitable trade. FinBERT is a financial-text model; crypto-specific accuracy has not been validated.</p>
           </CardContent>
         </Card>
@@ -85,12 +93,19 @@ export function SentimentPage() {
         <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Newspaper aria-hidden="true" className="h-4 w-4" />News Feed</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {(!data || loading) && <p className="text-sm text-muted-foreground">{loading ? 'Loading news…' : 'No news evidence available. Configure the source or retry.'}</p>}
-            {!loading && data?.articles.map(item => <a key={item.id} href={item.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 focus-visible:outline focus-visible:outline-primary transition-colors">
+            {!loading && data && [
+              { title: data.provider === 'rss' ? 'Recent headlines (within 24h)' : 'Headlines in the provider sample', items: recentArticles },
+              { title: 'Older headlines — context only', items: olderArticles },
+            ].map(({ title, items }) => <section key={title} className="space-y-3">
+              {(items.length > 0 || title.startsWith('Recent')) && <h3 className="text-sm font-semibold">{title}</h3>}
+              {!items.length && title.startsWith('Recent') && <p className="text-sm text-muted-foreground">No recent headlines for this asset. Older news does not produce a current score.</p>}
+              {items.map(item => <a key={item.id} href={item.url} target="_blank" rel="noopener noreferrer" className="block p-4 rounded-lg bg-secondary/30 hover:bg-secondary/50 focus-visible:outline focus-visible:outline-primary transition-colors">
               <div className="flex justify-between gap-2 mb-2"><Badge variant={sentimentBadge[item.label]}>{item.label}</Badge><ExternalLink aria-hidden="true" className="h-4 w-4 text-muted-foreground" /></div>
               <h4 className="text-sm font-medium mb-1">{item.title}<span className="sr-only"> (opens in new tab)</span></h4>
               {item.summary && <p className="text-sm text-muted-foreground mb-2">{item.summary}</p>}
-              <p className="text-xs text-muted-foreground">{item.source} · {new Date(item.published_at).toLocaleString()}</p>
+              <p className="text-xs text-muted-foreground">{item.source} · {new Date(item.published_at).toLocaleString()}{(item.related_sources?.length ?? 0) > 1 ? ` · Similar reports: ${item.related_sources?.filter(source => source !== item.source).join(', ')}` : ''}</p>
             </a>)}
+            </section>)}
           </CardContent>
         </Card>
         <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><MessageCircle aria-hidden="true" className="h-4 w-4" />Social Feed</CardTitle></CardHeader><CardContent><p className="text-sm text-muted-foreground">Social sources are not integrated yet. News sentiment excludes social posts and on-chain data.</p></CardContent></Card>

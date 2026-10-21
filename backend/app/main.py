@@ -1,9 +1,11 @@
 """FastAPI application factory: assembles middleware, exception handlers, and
 every route module behind one consistent app instance."""
 from contextlib import asynccontextmanager
+import hmac
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.router import api_router
 from app.api.routes.health import router as health_router
@@ -44,6 +46,35 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+
+    if settings.environment == 'production':
+        from urllib.parse import urlsplit
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(settings.cors_origins_list[0]).hostname])
+
+    @app.middleware('http')
+    async def private_api_responses(request, call_next):
+        from app.auth.sessions import cookie_name, csrf_token
+        from fastapi.responses import JSONResponse
+        raw = request.cookies.get(cookie_name())
+        if request.url.path.startswith('/api/') and request.method not in {'GET', 'HEAD', 'OPTIONS'}:
+            browser_entry = request.url.path in {'/api/auth/browser/login', '/api/auth/browser/register'}
+            origin = request.headers.get('origin')
+            bad_origin = (raw or browser_entry) and origin not in settings.cors_origins_list
+            bad_token = raw and not browser_entry and not hmac.compare_digest(request.headers.get('x-csrf-token', '').encode(), csrf_token(raw).encode())
+            if bad_origin or bad_token:
+                return JSONResponse({'error': {'code': 'CSRF_REJECTED', 'message': 'Reload the page and try again.'}},
+                    status_code=403, headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+        response = await call_next(request)
+        if request.url.path.startswith('/api/'):
+            # Account data, credentials and recovery responses must not persist
+            # in browser or shared-proxy HTTP caches.
+            response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        response.headers['X-Frame-Options'] = 'DENY'
+        if settings.environment == 'production':
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000'
+        return response
 
     app.include_router(health_router)
     app.include_router(api_router)
